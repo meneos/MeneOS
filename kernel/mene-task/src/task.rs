@@ -12,7 +12,7 @@ use axlog::{info, error};
 
 pub type SyscallHandler = fn(&mut UserContext, usize, &Arc<Mutex<AddrSpace>>);
 
-pub fn spawn_task(path: &str, pid: usize, handler: SyscallHandler) -> usize {
+pub fn spawn_task(path: &str, pid: usize, handler: SyscallHandler) -> (usize, Option<Arc<Mutex<AddrSpace>>>) {
     info!("Spawning app: {} with PID {}", path, pid);
     
     // 1. Read ELF
@@ -20,7 +20,7 @@ pub fn spawn_task(path: &str, pid: usize, handler: SyscallHandler) -> usize {
         Ok(data) => data,
         Err(e) => {
             error!("Failed to read {}: {:?}", path, e);
-            return 0; // Return 0 as error pid or indicator
+            return (0, None); // Return 0 as error pid or indicator
         }
     };
     
@@ -100,5 +100,5 @@ pub fn spawn_task(path: &str, pid: usize, handler: SyscallHandler) -> usize {
     task_inner.ctx_mut().set_page_table_root(aspace_arc.lock().page_table_root());
     ax_spawn_task(task_inner);
     
-    pid
+    (pid, Some(aspace_arc))
 }

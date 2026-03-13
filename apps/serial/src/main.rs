@@ -24,8 +24,9 @@ pub extern "C" fn _start() -> ! {
     ulib::sys_map_device(UART0, 0x1000);
     print_str("serial: PL011 UART driver initialized.\n");
     let mut buf = [0u8; 128];
+    let mut from_pid = 0;
     loop {
-        let len = ulib::sys_ipc_recv(&mut buf);
+        let len = ulib::sys_ipc_recv(&mut from_pid, &mut buf);
         if len > 0 {
             if let Ok(msg) = core::str::from_utf8(&buf[..len]) {
                 print_str(msg);

@@ -76,3 +76,10 @@ dependencies = [
  "buddy_system_allocator",
  "mene-abi",
 ]
+
+[[package]]
+name = "vmm"
+version = "0.1.0"
+dependencies = [
+ "ulib",
+]

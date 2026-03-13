@@ -10,6 +10,7 @@ pub enum MeneSysno {
     IpcRecv = 502,
     ReadFile = 503,
     MapDevice = 504,
+    VmmMapPageTo = 505,
 }
 
 impl core::convert::TryFrom<usize> for MeneSysno {
@@ -21,6 +22,7 @@ impl core::convert::TryFrom<usize> for MeneSysno {
             502 => Ok(Self::IpcRecv),
             503 => Ok(Self::ReadFile),
             504 => Ok(Self::MapDevice),
+            505 => Ok(Self::VmmMapPageTo),
             _ => Err(()),
         }
     }

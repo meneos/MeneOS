@@ -15,7 +15,15 @@ pub fn spawn_app(path: &str) -> usize {
     mene_kernel::ipc::IpcManager::init_process(pid);
 
     // Pass execution down to the mene-task component
-    mene_task::spawn_task(path, pid, handle_syscall)
+    let (spawned_pid, opt_aspace) = mene_task::spawn_task(path, pid, handle_syscall);
+    
+    if let Some(aspace) = opt_aspace {
+        mene_kernel::process::PROCESS_TABLE.lock().insert(spawned_pid, mene_kernel::process::ProcessInfo {
+            aspace,
+        });
+    }
+
+    spawned_pid
 }
 
 pub fn handle_syscall(
@@ -46,13 +54,13 @@ pub fn handle_syscall(
                 let slice = unsafe { core::slice::from_raw_parts(ptr, len) };
 
                 axlog::info!("PID {} sending IPC to PID {}", current_pid, target_pid);
-                if mene_kernel::ipc::IpcManager::send(target_pid, slice) == 0 {
+                if mene_kernel::ipc::IpcManager::send(current_pid, target_pid, slice) == 0 {
                     axlog::info!("IPC sent to PID {} success", target_pid);
                     0
                 } else {
                     if target_pid == 2 {
                         axlog::info!(
-                            "Early Logger: {}",
+                            "Early Logger (PID {}): {}", current_pid,
                             core::str::from_utf8(slice).unwrap_or("<invalid utf8>")
                         );
                     } else {
@@ -65,9 +73,18 @@ pub fn handle_syscall(
             MeneSysno::IpcRecv => {
                 let buf_ptr = uctx.arg0() as *mut u8;
                 let buf_max = uctx.arg1();
+                let from_pid_ptr = uctx.arg2() as *mut usize;
+                
                 let buf_slice = unsafe { core::slice::from_raw_parts_mut(buf_ptr, buf_max) };
-
-                mene_kernel::ipc::IpcManager::recv(current_pid, buf_slice)
+                
+                let mut from_pid = 0;
+                let copied = mene_kernel::ipc::IpcManager::recv(current_pid, buf_slice, &mut from_pid);
+                
+                if !from_pid_ptr.is_null() {
+                    unsafe { *from_pid_ptr = from_pid; }
+                }
+                
+                copied
             }
             MeneSysno::ReadFile => {
                 let path_ptr = uctx.arg0() as *const u8;
@@ -95,6 +112,23 @@ pub fn handle_syscall(
                 let length = uctx.arg1();
                 mene_memory::mmap::do_map_device(paddr, length, aspace_arc)
             }
+            MeneSysno::VmmMapPageTo => {
+                let target_pid = uctx.arg0();
+                let vaddr = uctx.arg1();
+                let length = uctx.arg2();
+                
+                // Note: Only PID 3 (VMM) should be allowed to call this in a secure system
+                if current_pid != 3 {
+                    return; // Denied
+                }
+
+                let map = mene_kernel::process::PROCESS_TABLE.lock();
+                if let Some(info) = map.get(&target_pid) {
+                    mene_memory::mmap::do_mmap(vaddr, length, &info.aspace)
+                } else {
+                    !0 // MAP_FAILED
+                }
+            }
         };
         uctx.set_retval(result);
         return;
@@ -117,16 +151,9 @@ pub fn handle_syscall(
         if let Sysno::exit = sysno {
             let code = uctx.arg0() as i32;
             mene_kernel::ipc::IpcManager::cleanup_process(current_pid);
+            mene_kernel::process::PROCESS_TABLE.lock().remove(&current_pid);
             axtask::exit(code);
             // unreachable
-        }
-
-        if let Sysno::mmap = sysno {
-            let addr = uctx.arg0();
-            let length = uctx.arg1();
-            let ret = mene_memory::mmap::do_mmap(addr, length, aspace_arc);
-            uctx.set_retval(ret);
-            return;
         }
     }
 

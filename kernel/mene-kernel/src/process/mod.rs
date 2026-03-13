@@ -1,4 +1,16 @@
 use core::sync::atomic::{AtomicUsize, Ordering};
+use alloc::collections::BTreeMap;
+use alloc::sync::Arc;
+use axsync::Mutex;
+use axmm::AddrSpace;
+
+lazy_static::lazy_static! {
+    pub static ref PROCESS_TABLE: Mutex<BTreeMap<usize, ProcessInfo>> = Mutex::new(BTreeMap::new());
+}
+
+pub struct ProcessInfo {
+    pub aspace: Arc<Mutex<AddrSpace>>,
+}
 
 pub struct ProcessManager;
 

@@ -10,7 +10,7 @@ lazy_static::lazy_static! {
 }
 
 pub struct ProcessIpc {
-    queue: Mutex<Vec<Vec<u8>>>,
+    queue: Mutex<Vec<(usize, Vec<u8>)>>,
     wq: WaitQueue,
 }
 
@@ -34,10 +34,10 @@ impl IpcManager {
         IPC_MAILBOXES.lock().remove(&pid);
     }
     
-    pub fn send(target_pid: usize, msg: &[u8]) -> isize {
+    pub fn send(sender_pid: usize, target_pid: usize, msg: &[u8]) -> isize {
         let map = IPC_MAILBOXES.lock();
         if let Some(ipc) = map.get(&target_pid) {
-            ipc.queue.lock().push(msg.to_vec());
+            ipc.queue.lock().push((sender_pid, msg.to_vec()));
             ipc.wq.notify_one(true);
             0
         } else {
@@ -45,7 +45,7 @@ impl IpcManager {
         }
     }
     
-    pub fn recv(current_pid: usize, buf: &mut [u8]) -> usize {
+    pub fn recv(current_pid: usize, buf: &mut [u8], from_pid: &mut usize) -> usize {
         let ipc = {
             let map = IPC_MAILBOXES.lock();
             map.get(&current_pid).cloned()
@@ -57,9 +57,10 @@ impl IpcManager {
             axlog::info!("PID {} Woke up!", current_pid);
             
             let mut q = ipc.queue.lock();
-            let msg = q.remove(0);
+            let (sender, msg) = q.remove(0);
             let bytes_to_copy = core::cmp::min(msg.len(), buf.len());
             buf[..bytes_to_copy].copy_from_slice(&msg[..bytes_to_copy]);
+            *from_pid = sender;
             
             bytes_to_copy
         } else {

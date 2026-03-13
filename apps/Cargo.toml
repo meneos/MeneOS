@@ -4,7 +4,7 @@ members = [
     "init",
     "serial",
     "helloworld"
-]
+, "vmm"]
 resolver = "2"
 
 [profile.release]

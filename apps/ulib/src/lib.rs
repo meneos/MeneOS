@@ -44,8 +44,8 @@ pub fn sys_ipc_send(pid: usize, msg: &[u8]) {
     syscall(MeneSysno::IpcSend as usize, pid, msg.as_ptr() as usize, msg.len(), 0);
 }
 
-pub fn sys_ipc_recv(buf: &mut [u8]) -> usize {
-    syscall(MeneSysno::IpcRecv as usize, buf.as_mut_ptr() as usize, buf.len(), 0, 0)
+pub fn sys_ipc_recv(from_pid: &mut usize, buf: &mut [u8]) -> usize {
+    syscall(MeneSysno::IpcRecv as usize, buf.as_mut_ptr() as usize, buf.len(), from_pid as *mut usize as usize, 0)
 }
 
 pub fn sys_exit(code: i32) -> ! {
@@ -54,11 +54,27 @@ pub fn sys_exit(code: i32) -> ! {
 }
 
 pub fn sys_mmap(length: usize) -> usize {
-    syscall(Sysno::mmap as usize, 0, length, 0, 0)
+    let mut req = [0u8; 9];
+    req[0] = 1; // Command 1: MMAP
+    req[1..9].copy_from_slice(&length.to_le_bytes());
+    sys_ipc_send(3, &req); // PID 3 is VMM
+    
+    let mut resp = [0u8; 8];
+    let mut from_pid = 0;
+    loop {
+        let len = sys_ipc_recv(&mut from_pid, &mut resp);
+        if len == 8 && from_pid == 3 {
+            return usize::from_le_bytes(resp);
+        }
+    }
 }
 
 pub fn sys_map_device(paddr: usize, length: usize) -> usize {
     syscall(MeneSysno::MapDevice as usize, paddr, length, 0, 0)
+}
+
+pub fn sys_vmm_map_page_to(target_pid: usize, vaddr: usize, size: usize) -> usize {
+    syscall(MeneSysno::VmmMapPageTo as usize, target_pid, vaddr, size, 0)
 }
 
 pub fn init_allocator() {
