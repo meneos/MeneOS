@@ -16,11 +16,38 @@ pub fn spawn_app(path: &str) -> usize {
 
     // Pass execution down to the mene-task component
     let (spawned_pid, opt_aspace) = mene_task::spawn_task(path, pid, handle_syscall);
-    
+
     if let Some(aspace) = opt_aspace {
-        mene_kernel::process::PROCESS_TABLE.lock().insert(spawned_pid, mene_kernel::process::ProcessInfo {
-            aspace,
-        });
+        let mut cspace_map = alloc::collections::BTreeMap::new();
+        let local_endpoint = alloc::sync::Arc::new(mene_ipc::endpoint::Endpoint::new());
+        cspace_map.insert(
+            1,
+            mene_ipc::capability::Capability::Endpoint(local_endpoint.clone()),
+        );
+
+        let ptable = mene_kernel::process::PROCESS_TABLE.lock();
+        if let Some(p) = ptable.get(&2) {
+            cspace_map.insert(
+                2,
+                mene_ipc::capability::Capability::Endpoint(p.local_endpoint.clone()),
+            );
+        }
+        if let Some(p) = ptable.get(&3) {
+            cspace_map.insert(
+                3,
+                mene_ipc::capability::Capability::Endpoint(p.local_endpoint.clone()),
+            );
+        }
+        drop(ptable);
+
+        mene_kernel::process::PROCESS_TABLE.lock().insert(
+            spawned_pid,
+            mene_kernel::process::ProcessInfo {
+                cspace: axsync::Mutex::new(cspace_map),
+                aspace,
+                local_endpoint,
+            },
+        );
     }
 
     spawned_pid
@@ -36,55 +63,76 @@ pub fn handle_syscall(
 
     // Fallback space for mene specific calls (sysno_val == 500, 501, etc.)
     if let Ok(mene_sysno) = MeneSysno::try_from(sysno_val) {
-        let result = match mene_sysno {
+        let result: axerrno::AxResult<usize> = match mene_sysno {
             MeneSysno::Spawn => {
                 let ptr = uctx.arg0() as *const u8;
                 let len = uctx.arg1();
                 let slice = unsafe { core::slice::from_raw_parts(ptr, len) };
                 if let Ok(path) = core::str::from_utf8(slice) {
-                    spawn_app(path)
+                    Ok(spawn_app(path))
                 } else {
-                    0
+                    Err(axerrno::AxError::InvalidInput)
                 }
             }
             MeneSysno::IpcSend => {
-                let target_pid = uctx.arg0();
+                let handle = uctx.arg0();
                 let ptr = uctx.arg1() as *const u8;
                 let len = uctx.arg2();
+                // Optional capability to pass
+                let passed_cap = uctx.arg3();
                 let slice = unsafe { core::slice::from_raw_parts(ptr, len) };
 
-                axlog::info!("PID {} sending IPC to PID {}", current_pid, target_pid);
-                if mene_kernel::ipc::IpcManager::send(current_pid, target_pid, slice) == 0 {
-                    axlog::info!("IPC sent to PID {} success", target_pid);
-                    0
-                } else {
-                    if target_pid == 2 {
-                        axlog::info!(
-                            "Early Logger (PID {}): {}", current_pid,
-                            core::str::from_utf8(slice).unwrap_or("<invalid utf8>")
-                        );
-                    } else {
-                        axlog::warn!("IPC send failed, PID {} not found", target_pid);
+                axlog::info!("PID {} sending IPC to handle {}", current_pid, handle);
+                match mene_kernel::ipc::IpcManager::send(current_pid, handle, slice, passed_cap) {
+                    Ok(_) => {
+                        axlog::info!("IPC sent via handle {} success", handle);
+                        Ok(0)
                     }
-
-                    -1isize as usize
+                    Err(e) => {
+                        axlog::warn!(
+                            "IPC send failed, handle {} missing/invalid, error {:?}",
+                            handle,
+                            e
+                        );
+                        Err(e)
+                    }
                 }
             }
             MeneSysno::IpcRecv => {
                 let buf_ptr = uctx.arg0() as *mut u8;
                 let buf_max = uctx.arg1();
-                let from_pid_ptr = uctx.arg2() as *mut usize;
-                
+                let from_handle_ptr = uctx.arg2() as *mut usize;
+                // Optional arg to receive capability
+                let recv_cap_ptr = uctx.arg3() as *mut usize;
+
                 let buf_slice = unsafe { core::slice::from_raw_parts_mut(buf_ptr, buf_max) };
-                
-                let mut from_pid = 0;
-                let copied = mene_kernel::ipc::IpcManager::recv(current_pid, buf_slice, &mut from_pid);
-                
-                if !from_pid_ptr.is_null() {
-                    unsafe { *from_pid_ptr = from_pid; }
+
+                let mut from_handle = 0;
+                let mut recv_cap = 0;
+                match mene_kernel::ipc::IpcManager::recv(
+                    current_pid,
+                    buf_slice,
+                    &mut from_handle,
+                    &mut recv_cap,
+                ) {
+                    Ok(copied) => {
+                        if !from_handle_ptr.is_null() {
+                            unsafe {
+                                *from_handle_ptr = from_handle;
+                            }
+                        }
+                        if !recv_cap_ptr.is_null() {
+                            unsafe {
+                                *recv_cap_ptr = recv_cap;
+                            }
+                        }
+                        Ok(copied)
+                    }
+                    Err(e) => {
+                        axlog::warn!("IPC recv failed, PID {}, error {:?}", current_pid, e);
+                        Err(e)
+                    }
                 }
-                
-                copied
             }
             MeneSysno::ReadFile => {
                 let path_ptr = uctx.arg0() as *const u8;
@@ -99,24 +147,24 @@ pub fn handle_syscall(
                         let buf_slice =
                             unsafe { core::slice::from_raw_parts_mut(buf_ptr, bytes_to_copy) };
                         buf_slice.copy_from_slice(&data[..bytes_to_copy]);
-                        bytes_to_copy
+                        Ok(bytes_to_copy)
                     } else {
-                        0 // Read failed
+                        Err(axerrno::AxError::NotFound)
                     }
                 } else {
-                    0 // Invalid path
+                    Err(axerrno::AxError::InvalidInput)
                 }
             }
             MeneSysno::MapDevice => {
                 let paddr = uctx.arg0();
                 let length = uctx.arg1();
-                mene_memory::mmap::do_map_device(paddr, length, aspace_arc)
+                Ok(mene_memory::mmap::do_map_device(paddr, length, aspace_arc))
             }
             MeneSysno::VmmMapPageTo => {
                 let target_pid = uctx.arg0();
                 let vaddr = uctx.arg1();
                 let length = uctx.arg2();
-                
+
                 // Note: Only PID 3 (VMM) should be allowed to call this in a secure system
                 if current_pid != 3 {
                     return; // Denied
@@ -124,13 +172,22 @@ pub fn handle_syscall(
 
                 let map = mene_kernel::process::PROCESS_TABLE.lock();
                 if let Some(info) = map.get(&target_pid) {
-                    mene_memory::mmap::do_mmap(vaddr, length, &info.aspace)
+                    let addr = mene_memory::mmap::do_mmap(vaddr, length, &info.aspace);
+                    if addr == !0 {
+                        Err(axerrno::AxError::NoMemory)
+                    } else {
+                        Ok(addr)
+                    }
                 } else {
-                    !0 // MAP_FAILED
+                    Err(axerrno::AxError::NoSuchProcess)
                 }
             }
         };
-        uctx.set_retval(result);
+        let retval = match result {
+            Ok(val) => val,
+            Err(e) => e.code() as isize as usize,
+        };
+        uctx.set_retval(retval);
         return;
     }
 
@@ -151,7 +208,9 @@ pub fn handle_syscall(
         if let Sysno::exit = sysno {
             let code = uctx.arg0() as i32;
             mene_kernel::ipc::IpcManager::cleanup_process(current_pid);
-            mene_kernel::process::PROCESS_TABLE.lock().remove(&current_pid);
+            mene_kernel::process::PROCESS_TABLE
+                .lock()
+                .remove(&current_pid);
             axtask::exit(code);
             // unreachable
         }

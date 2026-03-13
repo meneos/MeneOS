@@ -24,9 +24,10 @@ impl Workspace {
 
 fn workspace_root() -> Result<PathBuf> {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
-    manifest_dir.parent().map(Path::to_path_buf).ok_or_else(|| {
-        XtaskError::Message("failed to locate workspace root".to_string())
-    })
+    manifest_dir
+        .parent()
+        .map(Path::to_path_buf)
+        .ok_or_else(|| XtaskError::Message("failed to locate workspace root".to_string()))
 }
 
 fn ensure_file(path: &Path, name: &str) -> Result<()> {

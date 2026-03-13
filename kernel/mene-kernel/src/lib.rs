@@ -8,5 +8,5 @@ pub mod process;
 pub mod trap;
 
 // Re-exports for convenience
-pub use process::ProcessManager;
 pub use ipc::IpcManager;
+pub use process::ProcessManager;

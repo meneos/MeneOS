@@ -27,3 +27,35 @@ impl core::convert::TryFrom<usize> for MeneSysno {
         }
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Handle {
+    LocalEndpoint,
+    SerialEndpoint,
+    VmmEndpoint,
+    Dynamic(usize),
+}
+
+impl Handle {
+    pub const LOCAL_ENDPOINT: usize = 1;
+    pub const SERIAL_ENDPOINT: usize = 2;
+    pub const VMM_ENDPOINT: usize = 3;
+
+    pub fn to_usize(&self) -> usize {
+        match self {
+            Handle::LocalEndpoint => Self::LOCAL_ENDPOINT,
+            Handle::SerialEndpoint => Self::SERIAL_ENDPOINT,
+            Handle::VmmEndpoint => Self::VMM_ENDPOINT,
+            Handle::Dynamic(v) => *v,
+        }
+    }
+
+    pub fn from_usize(val: usize) -> Self {
+        match val {
+            Self::LOCAL_ENDPOINT => Handle::LocalEndpoint,
+            Self::SERIAL_ENDPOINT => Handle::SerialEndpoint,
+            Self::VMM_ENDPOINT => Handle::VmmEndpoint,
+            _ => Handle::Dynamic(val),
+        }
+    }
+}

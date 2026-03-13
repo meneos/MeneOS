@@ -28,19 +28,28 @@ fn build_command_args(workspace: &Workspace, args: &MakeArgs, target: &str) -> V
     let _ = dotenvy::dotenv();
 
     // Mapping from environment keys to their default make arguments if not provided by `.env`
-    if cfg!(target_os = "macos") && !has_arg_override(args, "ACCEL=") && std::env::var("ACCEL").is_err() {
+    if cfg!(target_os = "macos")
+        && !has_arg_override(args, "ACCEL=")
+        && std::env::var("ACCEL").is_err()
+    {
         command.push("ACCEL=n".to_string());
     }
 
     if !has_arg_override(args, "BLK=") && std::env::var("BLK").is_err() {
         command.push("BLK=y".to_string());
     }
-    
+
     if !has_arg_override(args, "DISK_IMG=") {
         if let Ok(disk_img) = std::env::var("DISK_IMG") {
-            command.push(format!("DISK_IMG={}", workspace.root_dir.join(disk_img).display()));
+            command.push(format!(
+                "DISK_IMG={}",
+                workspace.root_dir.join(disk_img).display()
+            ));
         } else {
-            command.push(format!("DISK_IMG={}", workspace.root_dir.join("disk.img").display()));
+            command.push(format!(
+                "DISK_IMG={}",
+                workspace.root_dir.join("disk.img").display()
+            ));
         }
     }
 
@@ -59,8 +68,14 @@ fn build_command_args(workspace: &Workspace, args: &MakeArgs, target: &str) -> V
     }
 
     command.extend(args.make_args.clone());
-    command.push(format!("TARGET_DIR={}", workspace.root_dir.join("target").display()));
-    command.push(format!("OUT_CONFIG={}", workspace.root_dir.join(".axconfig.toml").display()));
+    command.push(format!(
+        "TARGET_DIR={}",
+        workspace.root_dir.join("target").display()
+    ));
+    command.push(format!(
+        "OUT_CONFIG={}",
+        workspace.root_dir.join(".axconfig.toml").display()
+    ));
     command.push(target.to_string());
     command
 }

@@ -9,7 +9,7 @@ extern crate axlog;
 #[unsafe(no_mangle)]
 fn main() {
     ax_println!("Starting MeneOS microkernel from entry...");
-    
+
     // start mene-init
     mene_init::microkernel_init();
 

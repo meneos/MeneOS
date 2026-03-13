@@ -3,7 +3,7 @@
 extern crate alloc;
 extern crate axlog;
 
-pub mod task;
 pub mod loader;
+pub mod task;
 
-pub use task::{spawn_task, SyscallHandler};
+pub use task::{SyscallHandler, spawn_task};

@@ -42,7 +42,7 @@ pub extern "C" fn _start() -> ! {
     vec.push(b'!');
     
     // Send IPC to serial service (PID 2 based on startup sequence)
-    ulib::sys_ipc_send(2, &vec);
+    ulib::sys_ipc_send(ulib::Handle::SerialEndpoint, &vec, None);
     
     ulib::sys_log("helloworld: IPC sent. Exiting.");
     ulib::sys_exit(0);

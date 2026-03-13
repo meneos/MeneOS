@@ -7,7 +7,12 @@ pub fn run(args: MeneRootfsArgs) -> Result<()> {
     println!("Building apps in release mode...");
     let target = match args.arch.as_str() {
         "aarch64" => "aarch64-unknown-none-softfloat",
-        _ => return Err(XtaskError::Message(format!("Unsupported architecture: {}", args.arch))),
+        _ => {
+            return Err(XtaskError::Message(format!(
+                "Unsupported architecture: {}",
+                args.arch
+            )));
+        }
     };
 
     let status = Command::new("cargo")
@@ -26,6 +31,17 @@ pub fn run(args: MeneRootfsArgs) -> Result<()> {
     }
 
     let disk_img = "disk.img";
+
+    if !std::path::Path::new(disk_img).exists() {
+        println!("disk.img not found, creating and formatting as fat32...");
+        Command::new("vdisk")
+            .args([disk_img, "dd", "--size", "128M"]) // 可以根据实际需要调整大小
+            .status()?;
+
+        Command::new("vdisk")
+            .args([disk_img, "mkfs", "--fstype", "fat32", "-y"])
+            .status()?;
+    }
 
     println!("Resetting /boot in {}", disk_img);
     Command::new("vdisk")
@@ -55,7 +71,7 @@ pub fn run(args: MeneRootfsArgs) -> Result<()> {
         let status = Command::new("vdisk")
             .args([disk_img, "cp", &host_path, "/boot/"])
             .status()?;
-        
+
         if !status.success() {
             return Err(XtaskError::Message(format!("Failed to copy {}", app)));
         }

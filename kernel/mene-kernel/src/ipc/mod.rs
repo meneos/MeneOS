@@ -1,71 +1,90 @@
-use alloc::collections::BTreeMap;
-use alloc::sync::Arc;
-use alloc::vec::Vec;
+use axerrno::{AxError, AxResult};
 
-use axtask::WaitQueue;
-use axsync::Mutex;
-
-lazy_static::lazy_static! {
-    static ref IPC_MAILBOXES: Mutex<BTreeMap<usize, Arc<ProcessIpc>>> = Mutex::new(BTreeMap::new());
-}
-
-pub struct ProcessIpc {
-    queue: Mutex<Vec<(usize, Vec<u8>)>>,
-    wq: WaitQueue,
-}
-
-impl ProcessIpc {
-    pub fn new() -> Self {
-        Self {
-            queue: Mutex::new(Vec::new()),
-            wq: WaitQueue::new(),
-        }
-    }
-}
+use crate::process::PROCESS_TABLE;
+use mene_ipc::capability::Capability;
 
 pub struct IpcManager;
 
 impl IpcManager {
-    pub fn init_process(pid: usize) {
-        IPC_MAILBOXES.lock().insert(pid, Arc::new(ProcessIpc::new()));
+    pub fn init_process(_pid: usize) {
+        // Initialization is handled when creating ProcessInfo
     }
-    
-    pub fn cleanup_process(pid: usize) {
-        IPC_MAILBOXES.lock().remove(&pid);
+
+    pub fn cleanup_process(_pid: usize) {
+        // Handled by ProcessInfo drop
     }
-    
-    pub fn send(sender_pid: usize, target_pid: usize, msg: &[u8]) -> isize {
-        let map = IPC_MAILBOXES.lock();
-        if let Some(ipc) = map.get(&target_pid) {
-            ipc.queue.lock().push((sender_pid, msg.to_vec()));
-            ipc.wq.notify_one(true);
-            0
-        } else {
-            -1 // Process not found
-        }
-    }
-    
-    pub fn recv(current_pid: usize, buf: &mut [u8], from_pid: &mut usize) -> usize {
-        let ipc = {
-            let map = IPC_MAILBOXES.lock();
-            map.get(&current_pid).cloned()
+
+    pub fn send(sender_pid: usize, handle: usize, msg: &[u8], passed_cap: usize) -> AxResult<()> {
+        let ep = {
+            let ptable = PROCESS_TABLE.lock();
+            let process = ptable.get(&sender_pid).ok_or(AxError::NoSuchProcess)?;
+            let cspace = process.cspace.lock();
+            match cspace.get(&handle) {
+                Some(Capability::Endpoint(ep)) => ep.clone(),
+                _ => return Err(AxError::BadFileDescriptor), // invalid handle
+            }
         };
-        
-        if let Some(ipc) = ipc {
-            axlog::info!("PID {} waiting for IPC...", current_pid);
-            ipc.wq.wait_until(|| !ipc.queue.lock().is_empty());
-            axlog::info!("PID {} Woke up!", current_pid);
-            
-            let mut q = ipc.queue.lock();
-            let (sender, msg) = q.remove(0);
-            let bytes_to_copy = core::cmp::min(msg.len(), buf.len());
-            buf[..bytes_to_copy].copy_from_slice(&msg[..bytes_to_copy]);
-            *from_pid = sender;
-            
-            bytes_to_copy
-        } else {
-            axlog::warn!("IPC recv failed, PID {} mailbox missing", current_pid);
-            0
+
+        let mut payload = mene_ipc::endpoint::IpcPayload::new(msg.to_vec(), sender_pid as u64);
+
+        if passed_cap != 0 {
+            let ptable = PROCESS_TABLE.lock();
+            let p = ptable.get(&sender_pid).ok_or(AxError::NoSuchProcess)?;
+            let cspace = p.cspace.lock();
+            if let Some(cap) = cspace.get(&passed_cap) {
+                payload.capabilities.push_back(cap.clone());
+            } else {
+                return Err(AxError::BadFileDescriptor); // invalid passed_cap
+            }
         }
+
+        ep.push(payload);
+        Ok(())
+    }
+
+    pub fn recv(
+        current_pid: usize,
+        buf: &mut [u8],
+        from_pid: &mut usize,
+        recv_cap: &mut usize,
+    ) -> AxResult<usize> {
+        let ep = {
+            let ptable = PROCESS_TABLE.lock();
+            let process = ptable.get(&current_pid).ok_or(AxError::NoSuchProcess)?;
+            process.local_endpoint.clone()
+        };
+
+        axlog::info!("PID {} waiting for IPC...", current_pid);
+        let mut payload = loop {
+            if let Some(p) = ep.pop() {
+                break p;
+            }
+            ep.wq.wait();
+        };
+        axlog::info!("PID {} Woke up!", current_pid);
+
+        let msg = payload.message;
+        let bytes_to_copy = core::cmp::min(msg.len(), buf.len());
+        buf[..bytes_to_copy].copy_from_slice(&msg[..bytes_to_copy]);
+        *from_pid = payload.sender_id as usize;
+
+        if let Some(cap) = payload.capabilities.pop_front() {
+            let ptable = PROCESS_TABLE.lock();
+            if let Some(p) = ptable.get(&current_pid) {
+                let mut cspace = p.cspace.lock();
+                let mut new_handle = 10;
+                while cspace.contains_key(&new_handle) {
+                    new_handle += 1;
+                }
+                cspace.insert(new_handle, cap);
+                *recv_cap = new_handle;
+            } else {
+                *recv_cap = 0;
+            }
+        } else {
+            *recv_cap = 0;
+        }
+
+        Ok(bytes_to_copy)
     }
 }

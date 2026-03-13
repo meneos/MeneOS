@@ -11,3 +11,5 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
+axsync.workspace = true
+axtask.workspace = true

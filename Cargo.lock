@@ -2297,11 +2297,16 @@ dependencies = [
 [[package]]
 name = "mene-ipc"
 version = "0.1.0"
+dependencies = [
+ "axsync",
+ "axtask",
+]
 
 [[package]]
 name = "mene-kernel"
 version = "0.1.0"
 dependencies = [
+ "axerrno 0.2.2",
  "axfeat",
  "axhal",
  "axlog",
