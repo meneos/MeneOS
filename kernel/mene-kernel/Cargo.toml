@@ -1,0 +1,27 @@
+[package]
+name = "mene-kernel"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+documentation.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description.workspace = true
+
+[dependencies]
+mene-config = { version = "0.1.0", path = "../mene-config" }
+mene-task = { version = "0.1.0", path = "../mene-task" }
+mene-memory = { version = "0.1.0", path = "../mene-memory" }
+mene-ipc = { version = "0.1.0", path = "../mene-ipc" }
+mene-trap = { version = "0.1.0", path = "../mene-trap" }
+
+axfeat = { workspace = true, features = ["alloc-slab", "sched-rr", "uspace"] }
+axtask.workspace = true
+axhal.workspace = true
+axlog.workspace = true
+
+lazy_static = { version = "1.5", features = ["spin_no_std"] }
+axsync = { workspace = true }

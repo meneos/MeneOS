@@ -1,3 +1,5 @@
+#![no_std]
+
 //! Architecture-specific configurations.
 
 cfg_if::cfg_if! {

@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
-    "entry", "kernel/mene-init", "kernel/mene-ipc", "kernel/mene-syscall",
+    "entry", "kernel/mene-abi", "kernel/mene-config", "kernel/mene-init", "kernel/mene-ipc", "kernel/mene-kernel", "kernel/mene-memory", "kernel/mene-syscall", "kernel/mene-task", "kernel/mene-trap",
     "xtask"
 ]
 exclude = []

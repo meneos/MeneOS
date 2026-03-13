@@ -3,9 +3,8 @@
 
 extern crate alloc;
 #[macro_use]
-extern crate axlog;
+extern crate log;
 
-pub mod config;
 pub mod mm;
 
 pub fn microkernel_init() {

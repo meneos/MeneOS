@@ -11,7 +11,7 @@ repository.workspace = true
 [dependencies]
 cfg-if = "1.0"
 axfeat = { workspace = true, features = ["alloc-slab", "sched-rr", "uspace"] }
-axlog.workspace = true
+log.workspace = true
 axtask.workspace = true
 axhal.workspace = true
 axfs.workspace = true
@@ -27,4 +27,5 @@ kspin = "0.1"
 bitflags = "2.10"
 syscalls = { version = "0.8", default-features = false }
 mene-ipc = { path = "../mene-ipc" }
+mene-kernel = { path = "../mene-kernel" }
 mene-syscall = { path = "../mene-syscall" }

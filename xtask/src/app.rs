@@ -10,6 +10,7 @@ pub fn run() -> ExitCode {
     let result = match cli.command {
         Commands::Build(args) => commands::build::run(args),
         Commands::Run(args) => commands::run::run(args),
+        Commands::MeneRootfs(args) => commands::mene_rootfs::run(args),
     };
 
     match result {

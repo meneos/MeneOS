@@ -2256,6 +2256,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "mene-abi"
+version = "0.1.0"
+dependencies = [
+ "syscalls",
+]
+
+[[package]]
+name = "mene-config"
+version = "0.1.0"
+dependencies = [
+ "cfg-if",
+]
+
+[[package]]
 name = "mene-init"
 version = "0.1.0"
 dependencies = [
@@ -2264,7 +2278,6 @@ dependencies = [
  "axfeat",
  "axfs",
  "axhal",
- "axlog",
  "axmm",
  "axsync",
  "axtask",
@@ -2272,9 +2285,11 @@ dependencies = [
  "cfg-if",
  "kspin",
  "lazy_static",
+ "log",
  "memory_addr",
  "memory_set",
  "mene-ipc",
+ "mene-kernel",
  "mene-syscall",
  "syscalls",
  "xmas-elf",
@@ -2283,6 +2298,35 @@ dependencies = [
 [[package]]
 name = "mene-ipc"
 version = "0.1.0"
+
+[[package]]
+name = "mene-kernel"
+version = "0.1.0"
+dependencies = [
+ "axfeat",
+ "axhal",
+ "axlog",
+ "axsync",
+ "axtask",
+ "lazy_static",
+ "mene-config",
+ "mene-ipc",
+ "mene-memory",
+ "mene-task",
+ "mene-trap",
+]
+
+[[package]]
+name = "mene-memory"
+version = "0.1.0"
+dependencies = [
+ "axhal",
+ "axlog",
+ "axmm",
+ "axsync",
+ "memory_addr",
+ "mene-config",
+]
 
 [[package]]
 name = "mene-syscall"
@@ -2299,9 +2343,41 @@ dependencies = [
  "kspin",
  "lazy_static",
  "memory_addr",
+ "mene-abi",
+ "mene-config",
  "mene-ipc",
- "syscalls",
+ "mene-kernel",
+ "mene-memory",
+ "mene-task",
  "xmas-elf",
+]
+
+[[package]]
+name = "mene-task"
+version = "0.1.0"
+dependencies = [
+ "axfeat",
+ "axfs",
+ "axhal",
+ "axlog",
+ "axmm",
+ "axsync",
+ "axtask",
+ "memory_addr",
+ "mene-config",
+ "mene-ipc",
+ "mene-memory",
+ "xmas-elf",
+]
+
+[[package]]
+name = "mene-trap"
+version = "0.1.0"
+dependencies = [
+ "axhal",
+ "axlog",
+ "mene-ipc",
+ "mene-task",
 ]
 
 [[package]]

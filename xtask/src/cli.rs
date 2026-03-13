@@ -12,6 +12,13 @@ pub struct Cli {
 pub enum Commands {
     Build(MakeArgs),
     Run(MakeArgs),
+    MeneRootfs(MeneRootfsArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct MeneRootfsArgs {
+    #[arg(long, default_value = "aarch64")]
+    pub arch: String,
 }
 
 #[derive(Debug, Clone, Args)]

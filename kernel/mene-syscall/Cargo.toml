@@ -14,8 +14,11 @@ axlog.workspace = true
 axtask.workspace = true
 axhal.workspace = true
 axerrno = "0.2"
-syscalls = { version = "0.8", default-features = false }
+mene-abi = { path = "../mene-abi" }
 mene-ipc = { path = "../mene-ipc" }
+mene-kernel = { path = "../mene-kernel" }
+mene-task = { path = "../mene-task" }
+mene-memory = { path = "../mene-memory" }
 
 axfs.workspace = true
 axmm = { workspace = true, features = ["copy"] }
@@ -24,3 +27,4 @@ memory_addr = "0.4"
 kspin = "0.1"
 lazy_static = { version = "1.5", features = ["spin_no_std"] }
 axsync = { workspace = true }
+mene-config = { version = "0.1.0", path = "../mene-config" }
