@@ -28,7 +28,8 @@ pub fn syscall(sysno: usize, arg0: usize, arg1: usize, arg2: usize, arg3: usize)
 }
 
 pub fn sys_log(msg: &str) {
-    syscall(Sysno::write as usize, 1, msg.as_ptr() as usize, msg.len(), 0);
+    // Send IPC to serial process (PID 2)
+    sys_ipc_send(2, msg.as_bytes());
 }
 
 pub fn sys_spawn(path: &str) -> usize {
@@ -54,6 +55,10 @@ pub fn sys_exit(code: i32) -> ! {
 
 pub fn sys_mmap(length: usize) -> usize {
     syscall(Sysno::mmap as usize, 0, length, 0, 0)
+}
+
+pub fn sys_map_device(paddr: usize, length: usize) -> usize {
+    syscall(MeneSysno::MapDevice as usize, paddr, length, 0, 0)
 }
 
 pub fn init_allocator() {

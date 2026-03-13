@@ -2291,7 +2291,6 @@ dependencies = [
  "mene-ipc",
  "mene-kernel",
  "mene-syscall",
- "syscalls",
  "xmas-elf",
 ]
 

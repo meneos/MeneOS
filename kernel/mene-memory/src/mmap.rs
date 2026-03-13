@@ -26,3 +26,18 @@ pub fn do_mmap(addr: usize, length: usize, aspace_arc: &Arc<Mutex<AddrSpace>>) -
         !0
     }
 }
+
+pub fn do_map_device(paddr: usize, length: usize, aspace_arc: &Arc<Mutex<AddrSpace>>) -> usize {
+    let mut aspace = aspace_arc.lock();
+    let size = memory_addr::align_up_4k(length);
+    // Identity map logical == physical
+    let vaddr = VirtAddr::from_usize(paddr);
+    let pdaddr = memory_addr::PhysAddr::from_usize(paddr);
+    
+    let map_flags = MappingFlags::USER | MappingFlags::READ | MappingFlags::WRITE | MappingFlags::DEVICE;
+    if aspace.map_linear(vaddr, pdaddr, size, map_flags).is_ok() {
+        vaddr.as_usize()
+    } else {
+        !0 // MAP_FAILED
+    }
+}

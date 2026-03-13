@@ -9,6 +9,7 @@ pub enum MeneSysno {
     IpcSend = 501,
     IpcRecv = 502,
     ReadFile = 503,
+    MapDevice = 504,
 }
 
 impl core::convert::TryFrom<usize> for MeneSysno {
@@ -19,6 +20,7 @@ impl core::convert::TryFrom<usize> for MeneSysno {
             501 => Ok(Self::IpcSend),
             502 => Ok(Self::IpcRecv),
             503 => Ok(Self::ReadFile),
+            504 => Ok(Self::MapDevice),
             _ => Err(()),
         }
     }
