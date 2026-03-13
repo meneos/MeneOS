@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
-    "entry",
+    "entry", "kernel/mene-init", "kernel/mene-ipc", "kernel/mene-syscall",
     "xtask"
 ]
 exclude = []
@@ -17,6 +17,7 @@ repository = "https://gitee.com/meneos/MeneOS"
 documentation = "https://gitee.com/meneos/MeneOS"
 keywords = ["MeneOS", "kernel", "microkernel"]
 categories = ["os", "no-std"]
+description = "MeneOS microkernel"
 
 [workspace.dependencies]
 # ArceOS User Libraries

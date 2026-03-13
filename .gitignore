@@ -16,3 +16,6 @@
 # Code statistics cache
 /.cache/
 /code-stats/
+
+# Temp Files
+Macro kernel

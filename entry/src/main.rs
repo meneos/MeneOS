@@ -1,10 +1,21 @@
-#![cfg_attr(feature = "axstd", no_std)]
-#![cfg_attr(feature = "axstd", no_main)]
+#![no_std]
+#![no_main]
 
-#[cfg(feature = "axstd")]
-use axstd::println;
+extern crate alloc;
+extern crate axruntime;
+#[macro_use]
+extern crate axlog;
 
-#[cfg_attr(feature = "axstd", unsafe(no_mangle))]
+#[unsafe(no_mangle)]
 fn main() {
-    println!("Hello, world!");
+    ax_println!("Starting MeneOS microkernel from entry...");
+    
+    // start mene-init
+    mene_init::microkernel_init();
+
+    // After this, axtask will schedule the user thread, we just loop here or exit
+    ax_println!("Kernel initialization done, dropping to default task loop.");
+    loop {
+        axtask::yield_now();
+    }
 }

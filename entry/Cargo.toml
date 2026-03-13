@@ -7,7 +7,15 @@ description = "MeneOS Entry Crate"
 license.workspace = true
 homepage.workspace = true
 
+[features]
+qemu = []
+
 [dependencies]
-axstd = { workspace = true, optional = true }
+axtask = { workspace = true }
+axruntime = { workspace = true, features = ["alloc", "fs", "paging", "multitask", "irq", "axdriver"] }
+axfs = { workspace = true }
+axlog = { workspace = true }
+axfeat = { workspace = true, features = ["alloc", "fs", "paging", "multitask", "irq", "sched-rr", "axdriver"] }
 
 
+mene-init = { path = "../kernel/mene-init" }

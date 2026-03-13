@@ -158,29 +158,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
-name = "arceos_api"
-version = "0.1.0"
-dependencies = [
- "axalloc",
- "axconfig",
- "axdisplay",
- "axdma",
- "axdriver",
- "axerrno 0.2.2",
- "axfeat",
- "axfs",
- "axhal",
- "axio",
- "axipi",
- "axlog",
- "axmm",
- "axnet",
- "axruntime",
- "axsync",
- "axtask",
-]
-
-[[package]]
 name = "arm-gic-driver"
 version = "0.16.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -354,8 +331,6 @@ dependencies = [
 [[package]]
 name = "axcpu"
 version = "0.3.0-preview.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "361edfc761188b19fb3d906b0b155942a6290068ee88d42f3b1f0ce31dcd099e"
 dependencies = [
  "aarch64-cpu 11.2.0",
  "axbacktrace",
@@ -369,7 +344,6 @@ dependencies = [
  "page_table_multiarch",
  "percpu",
  "riscv",
- "static_assertions",
  "tock-registers 0.10.1",
  "x86",
  "x86_64",
@@ -993,20 +967,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cad6b7b0b8d9ad1d52a834d8b7721114413da8cf3430af928b1c8651f911287a"
 dependencies = [
  "linked_list_r4l",
-]
-
-[[package]]
-name = "axstd"
-version = "0.1.0"
-dependencies = [
- "arceos_api",
- "axerrno 0.2.2",
- "axfeat",
- "axio",
- "kspin",
- "lazyinit",
- "lock_api",
- "spin 0.10.0",
 ]
 
 [[package]]
@@ -1640,6 +1600,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "dotenvy"
+version = "0.15.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
+
+[[package]]
 name = "duct"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1667,7 +1633,12 @@ checksum = "361a90feb7004eca4019fb28352a9465666b24f840f5c3cddf0ff13920590b89"
 name = "entry"
 version = "0.1.0"
 dependencies = [
- "axstd",
+ "axfeat",
+ "axfs",
+ "axlog",
+ "axruntime",
+ "axtask",
+ "mene-init",
 ]
 
 [[package]]
@@ -2282,6 +2253,55 @@ checksum = "50a49ecd4114cf87f7e442ec5dd03bd590e7094541f987057310dbb32a6341ad"
 dependencies = [
  "axerrno 0.1.2",
  "memory_addr",
+]
+
+[[package]]
+name = "mene-init"
+version = "0.1.0"
+dependencies = [
+ "axconfig",
+ "axerrno 0.2.2",
+ "axfeat",
+ "axfs",
+ "axhal",
+ "axlog",
+ "axmm",
+ "axsync",
+ "axtask",
+ "bitflags 2.11.0",
+ "cfg-if",
+ "kspin",
+ "lazy_static",
+ "memory_addr",
+ "memory_set",
+ "mene-ipc",
+ "mene-syscall",
+ "syscalls",
+ "xmas-elf",
+]
+
+[[package]]
+name = "mene-ipc"
+version = "0.1.0"
+
+[[package]]
+name = "mene-syscall"
+version = "0.1.0"
+dependencies = [
+ "axerrno 0.2.2",
+ "axfeat",
+ "axfs",
+ "axhal",
+ "axlog",
+ "axmm",
+ "axsync",
+ "axtask",
+ "kspin",
+ "lazy_static",
+ "memory_addr",
+ "mene-ipc",
+ "syscalls",
+ "xmas-elf",
 ]
 
 [[package]]
@@ -3191,12 +3211,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "static_assertions"
-version = "1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
-
-[[package]]
 name = "strsim"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3263,6 +3277,12 @@ dependencies = [
  "quote",
  "unicode-ident",
 ]
+
+[[package]]
+name = "syscalls"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "81c645a4de0d803ced6ef0388a2646aa1ef8467173b5d59a2c33c88de4ab76e7"
 
 [[package]]
 name = "tap"
@@ -3746,12 +3766,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "xmas-elf"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "42c49817e78342f7f30a181573d82ff55b88a35f86ccaf07fc64b3008f56d1c6"
+dependencies = [
+ "zero",
+]
+
+[[package]]
 name = "xtask"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "dotenvy",
  "duct",
 ]
+
+[[package]]
+name = "zero"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2fe21bcc34ca7fe6dd56cc2cb1261ea59d6b93620215aefb5ea6032265527784"
 
 [[package]]
 name = "zerocopy"
@@ -3773,7 +3809,3 @@ dependencies = [
  "quote",
  "syn 2.0.117",
 ]
-
-[[patch.unused]]
-name = "axcpu"
-version = "0.2.2"

@@ -1,0 +1,30 @@
+[package]
+name = "mene-init"
+version.workspace = true
+edition.workspace = true
+description.workspace = true
+authors.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+
+[dependencies]
+cfg-if = "1.0"
+axfeat = { workspace = true, features = ["alloc-slab", "sched-rr", "uspace"] }
+axlog.workspace = true
+axtask.workspace = true
+axhal.workspace = true
+axfs.workspace = true
+axmm = { workspace = true, features = ["copy"] }
+axsync.workspace = true
+axconfig.workspace = true
+axerrno = "0.2"
+xmas-elf = "0.9"
+lazy_static = { version = "1.5", features = ["spin_no_std"] }
+memory_addr = "0.4"
+memory_set = "0.4"
+kspin = "0.1"
+bitflags = "2.10"
+syscalls = { version = "0.8", default-features = false }
+mene-ipc = { path = "../mene-ipc" }
+mene-syscall = { path = "../mene-syscall" }

@@ -10,4 +10,5 @@ description = "Workspace automation tasks for MeneOS"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
+dotenvy = "0.15.7"
 duct = "1.1.1"
