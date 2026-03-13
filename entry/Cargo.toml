@@ -1,0 +1,13 @@
+[package]
+name = "entry"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "MeneOS Entry Crate"
+license.workspace = true
+homepage.workspace = true
+
+[dependencies]
+axstd = { workspace = true, optional = true }
+
+

@@ -1,6 +1,98 @@
-[package]
-name = "MeneOS"
+[workspace]
+resolver = "2"
+members = [
+    "entry",
+    "xtask"
+]
+exclude = []
+
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
+license = "Apache-2.0"
 
-[dependencies]
+authors = ["Debin <luodeb@outlook.com>"]
+homepage = "https://gitee.com/meneos/MeneOS"
+repository = "https://gitee.com/meneos/MeneOS"
+documentation = "https://gitee.com/meneos/MeneOS"
+keywords = ["MeneOS", "kernel", "microkernel"]
+categories = ["os", "no-std"]
+
+[workspace.dependencies]
+# ArceOS User Libraries
+axstd = { path = "arceos/ulib/axstd" }
+axlibc = { path = "arceos/ulib/axlibc" }
+
+# ArceOS APIs
+arceos_api = { path = "arceos/api/arceos_api" }
+arceos_posix_api = { path = "arceos/api/arceos_posix_api" }
+axfeat = { path = "arceos/api/axfeat" }
+
+# ArceOS Modules
+axalloc = { path = "arceos/modules/axalloc" }
+axbacktrace = "0.1"
+axconfig = { path = "arceos/modules/axconfig" }
+axdisplay = { path = "arceos/modules/axdisplay" }
+axdma = { path = "arceos/modules/axdma" }
+axdriver = { path = "arceos/modules/axdriver" }
+axfs-ng = { path = "arceos/modules/axfs-ng" }
+axfs = { path = "arceos/modules/axfs" }
+axhal = { path = "arceos/modules/axhal" }
+axinput = { path = "arceos/modules/axinput" }
+axipi = { path = "arceos/modules/axipi" }
+axklib = "0.3"
+axlog = { path = "arceos/modules/axlog" }
+axmm = { path = "arceos/modules/axmm" }
+axnet = { path = "arceos/modules/axnet" }
+axnet-ng = { path = "arceos/modules/axnet-ng" }
+axns = { path = "arceos/modules/axns" }
+axplat-dyn = { path = "arceos/modules/axplat-dyn", default-features = false }
+axruntime = { path = "arceos/modules/axruntime" }
+axsync = { path = "arceos/modules/axsync" }
+axtask = { path = "arceos/modules/axtask" }
+
+# ArceOS external workspace crates
+axallocator = { version = "0.2", features = ["axerrno"] }
+axcpu = "0.3.0-preview.8"
+axdriver_base = "0.1.4-preview.3"
+axdriver_block = "0.1.4-preview.3"
+axdriver_display = "0.1.4-preview.3"
+axdriver_input = "0.1.4-preview.3"
+axdriver_net = "0.1.4-preview.3"
+axdriver_pci = "0.1.4-preview.3"
+axdriver_virtio = "0.1.4-preview.3"
+axdriver_vsock = "0.1.4-preview.3"
+axerrno = "0.2"
+axfs-ng-vfs = "0.1"
+axio = "0.3.0-pre.1"
+axplat = "0.3.1-pre.6"
+axplat-aarch64-bsta1000b = "0.3.1-pre.6"
+axplat-aarch64-phytium-pi = "0.3.1-pre.6"
+axplat-aarch64-qemu-virt = "0.3.1-pre.6"
+axplat-aarch64-raspi = "0.3.1-pre.6"
+axplat-loongarch64-qemu-virt = "0.3.1-pre.6"
+axplat-riscv64-qemu-virt = "0.3.1-pre.6"
+axplat-x86-pc = "0.3.1-pre.6"
+axpoll = "0.1"
+bindgen = "0.72"
+buddy-slab-allocator = "0.2"
+cfg-if = "1.0"
+chrono = { version = "0.4", default-features = false }
+crate_interface = "0.1"
+ctor_bare = "0.2"
+event-listener = { version = "5.4.0", default-features = false }
+kernel_guard = "0.1"
+kspin = "0.1"
+lazy_static = { version = "1.5", features = ["spin_no_std"] }
+lazyinit = "0.2"
+lock_api = { version = "0.4", default-features = false }
+log = "0.4"
+memory_addr = "0.4"
+page_table_multiarch = { version = "0.6", features = ["axerrno"] }
+percpu = "0.2.3-preview.1"
+scope-local = "0.1"
+spin = "0.10"
+
+
+[patch.crates-io]
+axcpu = { path = "crates/axcpu" }

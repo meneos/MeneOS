@@ -1,3 +1,6 @@
 [submodule "arceos"]
 	path = arceos
 	url = https://github.com/arceos-org/arceos.git
+[submodule "crates/axcpu"]
+	path = crates/axcpu
+	url = https://github.com/arceos-org/axcpu.git

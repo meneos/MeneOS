@@ -1,1 +1,18 @@
-/target
+/.idea
+.DS_Store
+*.elf
+*.bin
+*.dbg
+**/target/
+/.platconfig.*
+*.img
+/kernel-rv
+/kernel-la
+/.crates*
+/mnt
+*.swp
+*.swo
+
+# Code statistics cache
+/.cache/
+/code-stats/
