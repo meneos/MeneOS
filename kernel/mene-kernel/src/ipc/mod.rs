@@ -1,5 +1,6 @@
 use axerrno::{AxError, AxResult};
 use alloc::sync::Arc;
+use core::time::Duration;
 
 use crate::process::PROCESS_TABLE;
 use mene_ipc::capability::Capability;
@@ -101,6 +102,49 @@ impl IpcManager {
             ep.wq.wait_until(|| ep.has_pending());
         };
 
+        let msg = payload.message;
+        let bytes_to_copy = core::cmp::min(msg.len(), buf.len());
+        buf[..bytes_to_copy].copy_from_slice(&msg[..bytes_to_copy]);
+        *from_pid = payload.sender_id as usize;
+
+        if let Some(cap) = payload.capabilities.pop_front() {
+            let ptable = PROCESS_TABLE.lock();
+            if let Some(p) = ptable.get(&current_pid) {
+                let mut cspace = p.cspace.lock();
+                let mut new_handle = 10;
+                while cspace.contains_key(&new_handle) {
+                    new_handle += 1;
+                }
+                cspace.insert(new_handle, cap);
+                *recv_cap = new_handle;
+            } else {
+                *recv_cap = 0;
+            }
+        } else {
+            *recv_cap = 0;
+        }
+
+        Ok(bytes_to_copy)
+    }
+
+    pub fn recv_timeout(
+        current_pid: usize,
+        buf: &mut [u8],
+        from_pid: &mut usize,
+        recv_cap: &mut usize,
+        timeout: Duration,
+    ) -> AxResult<usize> {
+        let ep = {
+            let ptable = PROCESS_TABLE.lock();
+            let process = ptable.get(&current_pid).ok_or(AxError::NoSuchProcess)?;
+            process.local_endpoint.clone()
+        };
+
+        if !ep.has_pending() && ep.wq.wait_timeout_until(timeout, || ep.has_pending()) {
+            return Err(AxError::WouldBlock);
+        }
+
+        let mut payload = ep.pop().ok_or(AxError::WouldBlock)?;
         let msg = payload.message;
         let bytes_to_copy = core::cmp::min(msg.len(), buf.len());
         buf[..bytes_to_copy].copy_from_slice(&msg[..bytes_to_copy]);

@@ -117,6 +117,32 @@ pub fn sys_ipc_recv(from_pid: &mut usize, buf: &mut [u8], recv_cap: &mut Option<
     res
 }
 
+pub fn sys_ipc_recv_timeout(
+    from_pid: &mut usize,
+    buf: &mut [u8],
+    recv_cap: &mut Option<Handle>,
+    timeout_ms: usize,
+) -> isize {
+    let mut meta = [0usize; 2];
+    let res = syscall(
+        MeneSysno::IpcRecvTimeout as usize,
+        buf.as_mut_ptr() as usize,
+        buf.len(),
+        meta.as_mut_ptr() as usize,
+        timeout_ms,
+    ) as isize;
+
+    if res >= 0 {
+        *from_pid = meta[0];
+        if meta[1] != 0 {
+            *recv_cap = Some(Handle::from_usize(meta[1]));
+        } else {
+            *recv_cap = None;
+        }
+    }
+    res
+}
+
 pub fn sys_exit(code: i32) -> ! {
     syscall(Sysno::exit as usize, code as usize, 0, 0, 0);
     loop {}

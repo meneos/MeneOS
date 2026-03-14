@@ -4,6 +4,7 @@
 use core::ptr::NonNull;
 use ulib::blk::{
     MAX_IO_BYTES, REQ_FLUSH, REQ_GET_INFO, REQ_PING, REQ_READ, REQ_WRITE, RW_HDR_LEN,
+    RW_TAGGED_HDR_LEN, TAGGED_HDR_LEN,
 };
 use virtio_drivers::device::blk::{SECTOR_SIZE, VirtIOBlk};
 use virtio_drivers::transport::mmio::{MmioTransport, VirtIOHeader};
@@ -259,12 +260,32 @@ pub extern "C" fn _start() -> ! {
         }
 
         let opcode = u16::from_le_bytes([req_buf[0], req_buf[1]]);
+        let tagged = req_len >= TAGGED_HDR_LEN;
+        let req_tag = if tagged {
+            u32::from_le_bytes([req_buf[2], req_buf[3], req_buf[4], req_buf[5]])
+        } else {
+            0
+        };
+        let rw_hdr_len = if tagged { RW_TAGGED_HDR_LEN } else { RW_HDR_LEN };
+        let payload_off = if tagged { TAGGED_HDR_LEN } else { 2 };
+
+        let send_reply = |cap: ulib::Handle, payload: &[u8]| {
+            if tagged {
+                let mut out = [0u8; MAX_IO_BYTES + 16];
+                let n = payload.len();
+                out[0..4].copy_from_slice(&req_tag.to_le_bytes());
+                out[4..4 + n].copy_from_slice(payload);
+                ulib::sys_ipc_send(cap, &out[..4 + n], None);
+            } else {
+                ulib::sys_ipc_send(cap, payload, None);
+            }
+        };
+
         match opcode {
             REQ_PING => {
                 if let Some(cap) = reply_cap {
                     // Echo a small payload to prove request/reply IPC is alive.
-                    let resp = b"PONG";
-                    ulib::sys_ipc_send(cap, resp, None);
+                    send_reply(cap, b"PONG");
                 }
             }
             REQ_GET_INFO => {
@@ -274,80 +295,79 @@ pub extern "C" fn _start() -> ! {
                     let mut resp = [0u8; 16];
                     resp[0..8].copy_from_slice(&block_size.to_le_bytes());
                     resp[8..16].copy_from_slice(&block_count.to_le_bytes());
-                    ulib::sys_ipc_send(cap, &resp, None);
+                    send_reply(cap, &resp);
                 }
             }
             REQ_READ => {
                 if let Some(cap) = reply_cap {
-                    if req_len < RW_HDR_LEN {
-                        ulib::sys_ipc_send(cap, b"EINVAL", None);
+                    if req_len < rw_hdr_len {
+                        send_reply(cap, b"EINVAL");
                         continue;
                     }
 
                     let mut sec = [0u8; 8];
-                    sec.copy_from_slice(&req_buf[2..10]);
+                    sec.copy_from_slice(&req_buf[payload_off..payload_off + 8]);
                     let sector = u64::from_le_bytes(sec) as usize;
 
                     let mut n = [0u8; 4];
-                    n.copy_from_slice(&req_buf[10..14]);
+                    n.copy_from_slice(&req_buf[payload_off + 8..payload_off + 12]);
                     let bytes = u32::from_le_bytes(n) as usize;
 
                     if bytes == 0 || bytes > MAX_IO_BYTES || (bytes % SECTOR_SIZE) != 0 {
-                        ulib::sys_ipc_send(cap, b"EINVAL", None);
+                        send_reply(cap, b"EINVAL");
                         continue;
                     }
 
                     if backend.read_blocks(sector, &mut io_buf[..bytes]) {
-                        ulib::sys_ipc_send(cap, &io_buf[..bytes], None);
+                        send_reply(cap, &io_buf[..bytes]);
                     } else {
-                        ulib::sys_ipc_send(cap, b"EIO", None);
+                        send_reply(cap, b"EIO");
                     }
                 }
             }
             REQ_WRITE => {
                 if let Some(cap) = reply_cap {
-                    if req_len < RW_HDR_LEN {
-                        ulib::sys_ipc_send(cap, b"EINVAL", None);
+                    if req_len < rw_hdr_len {
+                        send_reply(cap, b"EINVAL");
                         continue;
                     }
 
                     let mut sec = [0u8; 8];
-                    sec.copy_from_slice(&req_buf[2..10]);
+                    sec.copy_from_slice(&req_buf[payload_off..payload_off + 8]);
                     let sector = u64::from_le_bytes(sec) as usize;
 
                     let mut n = [0u8; 4];
-                    n.copy_from_slice(&req_buf[10..14]);
+                    n.copy_from_slice(&req_buf[payload_off + 8..payload_off + 12]);
                     let bytes = u32::from_le_bytes(n) as usize;
 
                     if bytes == 0
                         || bytes > MAX_IO_BYTES
                         || (bytes % SECTOR_SIZE) != 0
-                        || req_len < RW_HDR_LEN + bytes
+                        || req_len < rw_hdr_len + bytes
                     {
-                        ulib::sys_ipc_send(cap, b"EINVAL", None);
+                        send_reply(cap, b"EINVAL");
                         continue;
                     }
 
-                    if backend.write_blocks(sector, &req_buf[RW_HDR_LEN..RW_HDR_LEN + bytes]) {
-                        ulib::sys_ipc_send(cap, b"OK", None);
+                    if backend.write_blocks(sector, &req_buf[rw_hdr_len..rw_hdr_len + bytes]) {
+                        send_reply(cap, b"OK");
                     } else {
-                        ulib::sys_ipc_send(cap, b"EIO", None);
+                        send_reply(cap, b"EIO");
                     }
                 }
             }
             REQ_FLUSH => {
                 if let Some(cap) = reply_cap {
                     if backend.flush() {
-                        ulib::sys_ipc_send(cap, b"OK", None);
+                        send_reply(cap, b"OK");
                     } else {
-                        ulib::sys_ipc_send(cap, b"EIO", None);
+                        send_reply(cap, b"EIO");
                     }
                 }
             }
             _ => {
                 if let Some(cap) = reply_cap {
-                    let resp = b"EINVAL";
-                    ulib::sys_ipc_send(cap, resp, None);
+                    send_reply(cap, b"EINVAL");
                 }
             }
         }

@@ -10,10 +10,14 @@ pub mod blk {
     pub const REQ_FLUSH: u16 = 5;
 
     pub const RW_HDR_LEN: usize = 14; // opcode(2) + sector(8) + bytes(4)
+    pub const TAG_LEN: usize = 4;
+    pub const TAGGED_HDR_LEN: usize = 2 + TAG_LEN;
+    pub const RW_TAGGED_HDR_LEN: usize = TAGGED_HDR_LEN + 8 + 4;
     pub const MAX_IO_BYTES: usize = 4096;
 }
 
 pub mod fs {
+    pub const FLAG_REQID: u16 = 0x8000;
     pub const REQ_PING: u16 = 0;
     pub const REQ_WRITE: u16 = 1;
     pub const REQ_READ: u16 = 2;
@@ -24,6 +28,9 @@ pub mod fs {
     pub const MAX_DATA: usize = 512;
     pub const WRITE_HDR_LEN: usize = 8; // opcode(2) + path_len(2) + data_len(4)
     pub const PATH_HDR_LEN: usize = 4; // opcode(2) + path_len(2)
+    pub const WRITE_HDR_LEN_V2: usize = 12; // + req_id(4)
+    pub const PATH_HDR_LEN_V2: usize = 8; // + req_id(4)
+    pub const RESP_REQID_LEN: usize = 4;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -44,6 +51,7 @@ pub enum MeneSysno {
     GetBootCfg = 512,
     SpawnElf = 513,
     MmapAnon = 514,
+    IpcRecvTimeout = 515,
 }
 
 impl core::convert::TryFrom<usize> for MeneSysno {
@@ -65,6 +73,7 @@ impl core::convert::TryFrom<usize> for MeneSysno {
             512 => Ok(Self::GetBootCfg),
             513 => Ok(Self::SpawnElf),
             514 => Ok(Self::MmapAnon),
+            515 => Ok(Self::IpcRecvTimeout),
             _ => Err(()),
         }
     }

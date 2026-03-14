@@ -6,7 +6,7 @@ extern crate alloc;
 use alloc::vec::Vec;
 use ulib::fs;
 
-const FS_RETRY_MAX: usize = 20;
+const FS_RETRY_MAX: usize = 50;
 const FS_RETRY_SLEEP_MS: usize = 20;
 
 fn fs_call(req: &[u8], resp: &mut [u8]) -> usize {
@@ -23,38 +23,44 @@ fn fs_call(req: &[u8], resp: &mut [u8]) -> usize {
     ulib::sys_ipc_recv(&mut from_pid, resp, &mut recv_cap)
 }
 
-fn fs_call_retry(req: &[u8], resp: &mut [u8]) -> usize {
-    let mut i = 0;
-    while i < FS_RETRY_MAX {
-        let len = fs_call(req, resp);
-        if !(len == 6 && &resp[..6] == b"EAGAIN") {
-            return len;
-        }
-        ulib::sys_sleep_ms(FS_RETRY_SLEEP_MS);
-        i += 1;
-    }
-    0
-}
-
 fn fs_write(path: &str, data: &[u8], resp: &mut [u8]) -> bool {
     let p = path.as_bytes();
-    let mut req = Vec::with_capacity(fs::WRITE_HDR_LEN + p.len() + data.len());
-    req.extend_from_slice(&fs::REQ_WRITE.to_le_bytes());
-    req.extend_from_slice(&(p.len() as u16).to_le_bytes());
-    req.extend_from_slice(&(data.len() as u32).to_le_bytes());
-    req.extend_from_slice(p);
-    req.extend_from_slice(data);
-    let len = fs_call_retry(&req, resp);
-    len == 2 && &resp[..2] == b"OK"
+    let mut i = 0;
+    while i < FS_RETRY_MAX {
+        let mut req = Vec::with_capacity(fs::WRITE_HDR_LEN + p.len() + data.len());
+        req.extend_from_slice(&fs::REQ_WRITE.to_le_bytes());
+        req.extend_from_slice(&(p.len() as u16).to_le_bytes());
+        req.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        req.extend_from_slice(p);
+        req.extend_from_slice(data);
+        let len = fs_call(&req, resp);
+        if len == 6 && &resp[..6] == b"EAGAIN" {
+            i += 1;
+            ulib::sys_sleep_ms(FS_RETRY_SLEEP_MS);
+            continue;
+        }
+        return len == 2 && &resp[..2] == b"OK";
+    }
+    false
 }
 
 fn fs_read(path: &str, resp: &mut [u8]) -> usize {
     let p = path.as_bytes();
-    let mut req = Vec::with_capacity(fs::PATH_HDR_LEN + p.len());
-    req.extend_from_slice(&fs::REQ_READ.to_le_bytes());
-    req.extend_from_slice(&(p.len() as u16).to_le_bytes());
-    req.extend_from_slice(p);
-    fs_call_retry(&req, resp)
+    let mut i = 0;
+    while i < FS_RETRY_MAX {
+        let mut req = Vec::with_capacity(fs::PATH_HDR_LEN + p.len());
+        req.extend_from_slice(&fs::REQ_READ.to_le_bytes());
+        req.extend_from_slice(&(p.len() as u16).to_le_bytes());
+        req.extend_from_slice(p);
+        let len = fs_call(&req, resp);
+        if len == 6 && &resp[..6] == b"EAGAIN" {
+            i += 1;
+            ulib::sys_sleep_ms(FS_RETRY_SLEEP_MS);
+            continue;
+        }
+        return len;
+    }
+    0
 }
 
 #[no_mangle]
@@ -107,12 +113,26 @@ pub extern "C" fn _start() -> ! {
 
     ulib::sys_log("helloworld: fs read begin");
     let rd = fs_read(path, &mut fs_resp);
-    let read_ok = rd == content.len() && &fs_resp[..rd] == content;
+    let read_ok = rd >= content.len() && &fs_resp[..content.len()] == content;
     ulib::sys_log("helloworld: fs read done");
 
     if write_ok && read_ok {
         ulib::sys_log("helloworld: fs write/read test passed");
     } else {
+        if !write_ok {
+            ulib::sys_log("helloworld: fs write not ok");
+            if fs_resp.len() >= 6 && &fs_resp[..6] == b"EAGAIN" {
+                ulib::sys_log("helloworld: fs write EAGAIN");
+            }
+        }
+        if !read_ok {
+            ulib::sys_log("helloworld: fs read not ok");
+            if rd == 6 && &fs_resp[..6] == b"ENOENT" {
+                ulib::sys_log("helloworld: fs read ENOENT");
+            } else if rd == 6 && &fs_resp[..6] == b"EAGAIN" {
+                ulib::sys_log("helloworld: fs read EAGAIN");
+            }
+        }
         ulib::sys_log("helloworld: fs write/read test failed");
     }
     

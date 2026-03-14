@@ -7,13 +7,20 @@ use alloc::vec::Vec;
 use axfatfs::{
     FileSystem, FsOptions, LossyOemCpConverter, NullTimeProvider, Read, Seek, SeekFrom, Write,
 };
+use core::sync::atomic::{AtomicU32, Ordering};
 use ulib::blk;
 use ulib::fs::{
-    MAX_DATA, MAX_PATH, PATH_HDR_LEN, REQ_DELETE, REQ_EXEC, REQ_PING, REQ_READ, REQ_WRITE,
-    WRITE_HDR_LEN,
+    FLAG_REQID, MAX_DATA, MAX_PATH, PATH_HDR_LEN, PATH_HDR_LEN_V2, REQ_DELETE, REQ_EXEC,
+    REQ_PING, REQ_READ, REQ_WRITE, RESP_REQID_LEN, WRITE_HDR_LEN, WRITE_HDR_LEN_V2,
 };
 
 type FsType = FileSystem<VirtioBlkDisk, NullTimeProvider, LossyOemCpConverter>;
+
+static BLK_REQ_ID: AtomicU32 = AtomicU32::new(1);
+
+fn next_blk_req_id() -> u32 {
+    BLK_REQ_ID.fetch_add(1, Ordering::Relaxed)
+}
 
 struct VirtioBlkDisk {
     pos: u64,
@@ -157,16 +164,60 @@ impl axfatfs::Seek for VirtioBlkDisk {
 }
 
 fn blk_call(req: &[u8], resp: &mut [u8]) -> usize {
+    let req_id = next_blk_req_id();
+    let mut tagged = [0u8; blk::MAX_IO_BYTES + 32];
+    if req.len() + blk::TAG_LEN > tagged.len() {
+        return 0;
+    }
+    tagged[0..2].copy_from_slice(&req[0..2]);
+    tagged[2..6].copy_from_slice(&req_id.to_le_bytes());
+    tagged[6..6 + (req.len() - 2)].copy_from_slice(&req[2..]);
+    let tagged_len = req.len() + blk::TAG_LEN;
+
     if !ulib::sys_ipc_send_checked(
         ulib::Handle::VirtioBlkEndpoint,
-        req,
+        &tagged[..tagged_len],
         Some(ulib::Handle::LocalEndpoint),
     ) {
         return 0;
     }
+
+    let mut inbox = [0u8; blk::MAX_IO_BYTES + 32];
     let mut from_pid = 0usize;
     let mut recv_cap = None;
-    ulib::sys_ipc_recv(&mut from_pid, resp, &mut recv_cap)
+    let mut tries = 0;
+    while tries < 250 {
+        let n = ulib::sys_ipc_recv_timeout(&mut from_pid, &mut inbox, &mut recv_cap, 20);
+        if n < 0 {
+            tries += 1;
+            continue;
+        }
+        let n = n as usize;
+
+        if let Some(cap) = recv_cap {
+            // Request channel and blk reply channel share one local endpoint.
+            // Push backpressure for unrelated client requests while waiting blk reply.
+            ulib::sys_ipc_send(cap, b"EAGAIN", None);
+            tries += 1;
+            continue;
+        }
+
+        if n < blk::TAG_LEN {
+            tries += 1;
+            continue;
+        }
+        let tag = u32::from_le_bytes([inbox[0], inbox[1], inbox[2], inbox[3]]);
+        if tag != req_id {
+            tries += 1;
+            continue;
+        }
+
+        let payload_len = n - blk::TAG_LEN;
+        let copy = core::cmp::min(payload_len, resp.len());
+        resp[..copy].copy_from_slice(&inbox[blk::TAG_LEN..blk::TAG_LEN + copy]);
+        return copy;
+    }
+    0
 }
 
 fn normalize_path(path: &str) -> &str {
@@ -230,23 +281,55 @@ pub extern "C" fn _start() -> ! {
             continue;
         }
 
-        let opcode = u16::from_le_bytes([req_buf[0], req_buf[1]]);
+        let raw_opcode = u16::from_le_bytes([req_buf[0], req_buf[1]]);
+        let reqid_mode = (raw_opcode & FLAG_REQID) != 0;
+        let opcode = raw_opcode & !FLAG_REQID;
+        let req_id = if reqid_mode {
+            if opcode == REQ_WRITE && req_len >= WRITE_HDR_LEN_V2 {
+                Some(u32::from_le_bytes([req_buf[8], req_buf[9], req_buf[10], req_buf[11]]))
+            } else if req_len >= PATH_HDR_LEN_V2 {
+                Some(u32::from_le_bytes([req_buf[4], req_buf[5], req_buf[6], req_buf[7]]))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let reply = |cap: ulib::Handle, payload: &[u8]| {
+            if let Some(id) = req_id {
+                let mut out = [0u8; RESP_REQID_LEN + MAX_DATA + 16];
+                out[0..4].copy_from_slice(&id.to_le_bytes());
+                let n = payload.len();
+                out[4..4 + n].copy_from_slice(payload);
+                ulib::sys_ipc_send(cap, &out[..4 + n], None);
+            } else {
+                ulib::sys_ipc_send(cap, payload, None);
+            }
+        };
+
+        let path_hdr_len = if reqid_mode { PATH_HDR_LEN_V2 } else { PATH_HDR_LEN };
+        let write_hdr_len = if reqid_mode {
+            WRITE_HDR_LEN_V2
+        } else {
+            WRITE_HDR_LEN
+        };
         match opcode {
             REQ_PING => {
                 if let Some(cap) = reply_cap {
-                    ulib::sys_ipc_send(cap, b"PONG", None);
+                    reply(cap, b"PONG");
                 }
             }
             REQ_WRITE => {
                 if let Some(cap) = reply_cap {
                     if !ensure_fs(&mut fs) {
-                        ulib::sys_ipc_send(cap, b"EAGAIN", None);
+                        reply(cap, b"EAGAIN");
                         continue;
                     }
                     let fs = fs.as_ref().unwrap();
 
-                    if req_len < WRITE_HDR_LEN {
-                        ulib::sys_ipc_send(cap, b"EINVAL", None);
+                    if req_len < write_hdr_len {
+                        reply(cap, b"EINVAL");
                         continue;
                     }
 
@@ -255,14 +338,14 @@ pub extern "C" fn _start() -> ! {
                     if path_len == 0
                         || path_len > MAX_PATH
                         || data_len > MAX_DATA
-                        || req_len < WRITE_HDR_LEN + path_len + data_len
+                        || req_len < write_hdr_len + path_len + data_len
                     {
-                        ulib::sys_ipc_send(cap, b"EINVAL", None);
+                        reply(cap, b"EINVAL");
                         continue;
                     }
 
-                    let path_bytes = &req_buf[WRITE_HDR_LEN..WRITE_HDR_LEN + path_len];
-                    let data = &req_buf[WRITE_HDR_LEN + path_len..WRITE_HDR_LEN + path_len + data_len];
+                    let path_bytes = &req_buf[write_hdr_len..write_hdr_len + path_len];
+                    let data = &req_buf[write_hdr_len + path_len..write_hdr_len + path_len + data_len];
                     match core::str::from_utf8(path_bytes) {
                         Ok(path) => {
                             let p = normalize_path(path);
@@ -272,7 +355,7 @@ pub extern "C" fn _start() -> ! {
                                 Err(_) => match root.create_file(p) {
                                     Ok(f) => f,
                                     Err(_) => {
-                                        ulib::sys_ipc_send(cap, b"EIO", None);
+                                        reply(cap, b"EIO");
                                         continue;
                                     }
                                 },
@@ -282,13 +365,13 @@ pub extern "C" fn _start() -> ! {
                                 || file.write(data).is_err()
                                 || file.flush().is_err()
                             {
-                                ulib::sys_ipc_send(cap, b"EIO", None);
+                                reply(cap, b"EIO");
                             } else {
-                                ulib::sys_ipc_send(cap, b"OK", None);
+                                reply(cap, b"OK");
                             }
                         }
                         Err(_) => {
-                            ulib::sys_ipc_send(cap, b"EINVAL", None)
+                            reply(cap, b"EINVAL")
                         }
                     }
                 }
@@ -296,23 +379,23 @@ pub extern "C" fn _start() -> ! {
             REQ_READ => {
                 if let Some(cap) = reply_cap {
                     if !ensure_fs(&mut fs) {
-                        ulib::sys_ipc_send(cap, b"EAGAIN", None);
+                        reply(cap, b"EAGAIN");
                         continue;
                     }
                     let fs = fs.as_ref().unwrap();
 
-                    if req_len < PATH_HDR_LEN {
-                        ulib::sys_ipc_send(cap, b"EINVAL", None);
+                    if req_len < path_hdr_len {
+                        reply(cap, b"EINVAL");
                         continue;
                     }
 
                     let path_len = u16::from_le_bytes([req_buf[2], req_buf[3]]) as usize;
-                    if path_len == 0 || path_len > MAX_PATH || req_len < PATH_HDR_LEN + path_len {
-                        ulib::sys_ipc_send(cap, b"EINVAL", None);
+                    if path_len == 0 || path_len > MAX_PATH || req_len < path_hdr_len + path_len {
+                        reply(cap, b"EINVAL");
                         continue;
                     }
 
-                    let path_bytes = &req_buf[PATH_HDR_LEN..PATH_HDR_LEN + path_len];
+                    let path_bytes = &req_buf[path_hdr_len..path_hdr_len + path_len];
                     match core::str::from_utf8(path_bytes) {
                         Ok(path) => {
                             let p = normalize_path(path);
@@ -320,31 +403,31 @@ pub extern "C" fn _start() -> ! {
                             let mut file = match root.open_file(p) {
                                 Ok(f) => f,
                                 Err(_) => {
-                                    ulib::sys_ipc_send(cap, b"ENOENT", None);
+                                    reply(cap, b"ENOENT");
                                     continue;
                                 }
                             };
 
                             if file.seek(SeekFrom::Start(0)).is_err() {
-                                ulib::sys_ipc_send(cap, b"EIO", None);
+                                reply(cap, b"EIO");
                                 continue;
                             }
 
                             let n = match file.read(&mut file_buf) {
                                 Ok(v) => v,
                                 Err(_) => {
-                                    ulib::sys_ipc_send(cap, b"EIO", None);
+                                    reply(cap, b"EIO");
                                     continue;
                                 }
                             };
                             if n == 0 {
-                                ulib::sys_ipc_send(cap, b"ENOENT", None);
+                                reply(cap, b"ENOENT");
                             } else {
-                                ulib::sys_ipc_send(cap, &file_buf[..n], None);
+                                reply(cap, &file_buf[..n]);
                             }
                         }
                         Err(_) => {
-                            ulib::sys_ipc_send(cap, b"EINVAL", None)
+                            reply(cap, b"EINVAL")
                         }
                     }
                 }
@@ -352,78 +435,78 @@ pub extern "C" fn _start() -> ! {
             REQ_DELETE => {
                 if let Some(cap) = reply_cap {
                     if !ensure_fs(&mut fs) {
-                        ulib::sys_ipc_send(cap, b"EAGAIN", None);
+                        reply(cap, b"EAGAIN");
                         continue;
                     }
                     let fs = fs.as_ref().unwrap();
 
-                    if req_len < PATH_HDR_LEN {
-                        ulib::sys_ipc_send(cap, b"EINVAL", None);
+                    if req_len < path_hdr_len {
+                        reply(cap, b"EINVAL");
                         continue;
                     }
 
                     let path_len = u16::from_le_bytes([req_buf[2], req_buf[3]]) as usize;
-                    if path_len == 0 || path_len > MAX_PATH || req_len < PATH_HDR_LEN + path_len {
-                        ulib::sys_ipc_send(cap, b"EINVAL", None);
+                    if path_len == 0 || path_len > MAX_PATH || req_len < path_hdr_len + path_len {
+                        reply(cap, b"EINVAL");
                         continue;
                     }
 
-                    let path_bytes = &req_buf[PATH_HDR_LEN..PATH_HDR_LEN + path_len];
+                    let path_bytes = &req_buf[path_hdr_len..path_hdr_len + path_len];
                     match core::str::from_utf8(path_bytes) {
                         Ok(path) => {
                             let p = normalize_path(path);
                             let root = fs.root_dir();
                             if root.remove(p).is_ok() {
-                                ulib::sys_ipc_send(cap, b"OK", None);
+                                reply(cap, b"OK");
                             } else {
-                                ulib::sys_ipc_send(cap, b"ENOENT", None);
+                                reply(cap, b"ENOENT");
                             }
                         }
-                        Err(_) => ulib::sys_ipc_send(cap, b"EINVAL", None),
+                        Err(_) => reply(cap, b"EINVAL"),
                     }
                 }
             }
             REQ_EXEC => {
                 if let Some(cap) = reply_cap {
                     if !ensure_fs(&mut fs) {
-                        ulib::sys_ipc_send(cap, b"EAGAIN", None);
+                        reply(cap, b"EAGAIN");
                         continue;
                     }
                     let fs = fs.as_ref().unwrap();
 
-                    if req_len < PATH_HDR_LEN {
-                        ulib::sys_ipc_send(cap, b"EINVAL", None);
+                    if req_len < path_hdr_len {
+                        reply(cap, b"EINVAL");
                         continue;
                     }
 
                     let path_len = u16::from_le_bytes([req_buf[2], req_buf[3]]) as usize;
-                    if path_len == 0 || path_len > MAX_PATH || req_len < PATH_HDR_LEN + path_len {
-                        ulib::sys_ipc_send(cap, b"EINVAL", None);
+                    if path_len == 0 || path_len > MAX_PATH || req_len < path_hdr_len + path_len {
+                        reply(cap, b"EINVAL");
                         continue;
                     }
 
-                    let path_bytes = &req_buf[PATH_HDR_LEN..PATH_HDR_LEN + path_len];
+                    let path_bytes = &req_buf[path_hdr_len..path_hdr_len + path_len];
                     let Ok(path) = core::str::from_utf8(path_bytes) else {
-                        ulib::sys_ipc_send(cap, b"EINVAL", None);
+                        reply(cap, b"EINVAL");
                         continue;
                     };
 
                     let Some(elf) = read_file_all(fs, path) else {
-                        ulib::sys_ipc_send(cap, b"ENOENT", None);
+                        reply(cap, b"ENOENT");
                         continue;
                     };
 
                     let pid = ulib::sys_spawn_elf(path, &elf);
                     if pid != 0 {
-                        ulib::sys_ipc_send(cap, b"OK", None);
+                        reply(cap, b"OK");
                     } else {
-                        ulib::sys_ipc_send(cap, b"EIO", None);
+                        reply(cap, b"EIO");
                     }
                 }
             }
             _ => {
                 if let Some(cap) = reply_cap {
-                    ulib::sys_ipc_send(cap, b"EINVAL", None);
+                    reply(cap, b"EINVAL");
                 }
             }
         }

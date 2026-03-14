@@ -192,6 +192,37 @@ pub fn handle_syscall(
                     }
                 }
             }
+            MeneSysno::IpcRecvTimeout => {
+                let buf_ptr = uctx.arg0() as *mut u8;
+                let buf_max = uctx.arg1();
+                let meta_ptr = uctx.arg2() as *mut usize;
+                let timeout_ms = uctx.arg3();
+
+                if buf_ptr.is_null() || meta_ptr.is_null() {
+                    Err(axerrno::AxError::InvalidInput)
+                } else {
+                    let buf_slice = unsafe { core::slice::from_raw_parts_mut(buf_ptr, buf_max) };
+
+                    let mut sender_pid = 0usize;
+                    let mut recv_cap = 0usize;
+                    match mene_kernel::ipc::IpcManager::recv_timeout(
+                        current_pid,
+                        buf_slice,
+                        &mut sender_pid,
+                        &mut recv_cap,
+                        Duration::from_millis(timeout_ms as u64),
+                    ) {
+                        Ok(copied) => {
+                            unsafe {
+                                *meta_ptr = sender_pid;
+                                *meta_ptr.add(1) = recv_cap;
+                            }
+                            Ok(copied)
+                        }
+                        Err(e) => Err(e),
+                    }
+                }
+            }
             MeneSysno::ReadFile => {
                 // Temporary bootstrap ability: only init process can use kernel-fs read.
                 if current_pid != 1 {
