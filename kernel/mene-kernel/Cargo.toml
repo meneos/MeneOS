@@ -27,3 +27,4 @@ lazy_static = { version = "1.5", features = ["spin_no_std"] }
 axsync = { workspace = true }
 axmm = { workspace = true, features = ["copy"] }
 axerrno = { workspace = true }
+flat_device_tree = "3.1.1"

@@ -26,3 +26,4 @@ axfs.workspace = true
 axmm = { workspace = true, features = ["copy"] }
 memory_addr = "0.4"
 axsync = { workspace = true }
+lazy_static = { workspace = true }

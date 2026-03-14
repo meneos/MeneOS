@@ -41,4 +41,8 @@ impl Endpoint {
     pub fn pop(&self) -> Option<IpcPayload> {
         self.queue.lock().pop_front()
     }
+
+    pub fn has_pending(&self) -> bool {
+        !self.queue.lock().is_empty()
+    }
 }

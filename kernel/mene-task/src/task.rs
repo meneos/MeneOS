@@ -1,8 +1,10 @@
-use alloc::string::String;
+use alloc::collections::BTreeMap;
+use alloc::string::{String, ToString};
 use alloc::sync::Arc;
+use alloc::vec::Vec;
 use axhal::paging::MappingFlags;
 use axhal::uspace::{ReturnReason, UserContext};
-use axlog::{error, info};
+use axlog::{error, warn};
 use axmm::AddrSpace;
 use axsync::Mutex;
 use axtask::{TaskInner, spawn_task as ax_spawn_task};
@@ -12,23 +14,82 @@ use xmas_elf::{ElfFile, program::Type};
 
 pub type SyscallHandler = fn(&mut UserContext, usize, &Arc<Mutex<AddrSpace>>);
 
-pub fn spawn_task(
-    path: &str,
-    pid: usize,
-    handler: SyscallHandler,
-) -> (usize, Option<Arc<Mutex<AddrSpace>>>) {
-    info!("Spawning app: {} with PID {}", path, pid);
+lazy_static::lazy_static! {
+    static ref PRELOADED_ELFS: Mutex<BTreeMap<String, Vec<u8>>> = Mutex::new(BTreeMap::new());
+    static ref PRELOADED_BOOT_CFG: Mutex<String> = Mutex::new(String::new());
+}
 
-    // 1. Read ELF
-    let file_data = match axfs::api::read(path) {
+pub fn preload_boot_assets() -> bool {
+    let boot_cfg_bytes = match axfs::api::read("/boot/boot.cfg") {
         Ok(data) => data,
         Err(e) => {
-            error!("Failed to read {}: {:?}", path, e);
-            return (0, None); // Return 0 as error pid or indicator
+            error!("Failed to read /boot/boot.cfg during preload: {:?}", e);
+            return false;
         }
     };
 
-    let elf = ElfFile::new(&file_data).expect("Invalid ELF");
+    let boot_cfg = match core::str::from_utf8(&boot_cfg_bytes) {
+        Ok(s) => s,
+        Err(_) => {
+            error!("/boot/boot.cfg is not valid UTF-8");
+            return false;
+        }
+    };
+
+    {
+        let mut cfg = PRELOADED_BOOT_CFG.lock();
+        *cfg = boot_cfg.to_string();
+    }
+
+    // Minimal bootstrap set: later apps are loaded by user-space fs.
+    let paths = [
+        "/boot/init",
+        "/boot/serial",
+        "/boot/virtio_blk",
+        "/boot/fs",
+    ];
+
+    let mut cache = PRELOADED_ELFS.lock();
+    cache.clear();
+    for path in paths {
+        if cache.contains_key(path) {
+            continue;
+        }
+        match axfs::api::read(path) {
+            Ok(data) => {
+                warn!("Preloaded app {} ({} bytes)", path, data.len());
+                cache.insert(String::from(path), data);
+            }
+            Err(e) => {
+                warn!("Preload skipped {}: {:?}", path, e);
+            }
+        }
+    }
+
+    cache.contains_key("/boot/init")
+}
+
+pub fn copy_boot_cfg_to(buf: &mut [u8]) -> usize {
+    let cfg = PRELOADED_BOOT_CFG.lock();
+    let bytes = cfg.as_bytes();
+    let n = core::cmp::min(bytes.len(), buf.len());
+    buf[..n].copy_from_slice(&bytes[..n]);
+    n
+}
+
+fn get_preloaded_elf(path: &str) -> Option<Vec<u8>> {
+    PRELOADED_ELFS.lock().get(path).cloned()
+}
+
+fn spawn_task_from_elf(
+    path: &str,
+    pid: usize,
+    handler: SyscallHandler,
+    file_data: &[u8],
+) -> (usize, Option<Arc<Mutex<AddrSpace>>>) {
+    warn!("Spawning app: {} with PID {}", path, pid);
+
+    let elf = ElfFile::new(file_data).expect("Invalid ELF");
     let entry_point = elf.header.pt2.entry_point();
 
     let mut aspace = axmm::new_user_aspace(VirtAddr::from_usize(USER_SPACE_BASE), USER_SPACE_SIZE)
@@ -81,7 +142,7 @@ pub fn spawn_task(
         move || {
             let _keep = aspace_clone.clone();
             let mut uctx_run = uctx;
-            info!("Entering user mode for {} (PID {})!", path_clone, pid);
+            warn!("Entering user mode for {} (PID {})", path_clone, pid);
             loop {
                 let reason = uctx_run.run();
                 match reason {
@@ -110,4 +171,29 @@ pub fn spawn_task(
     ax_spawn_task(task_inner);
 
     (pid, Some(aspace_arc))
+}
+
+pub fn spawn_task(
+    path: &str,
+    pid: usize,
+    handler: SyscallHandler,
+) -> (usize, Option<Arc<Mutex<AddrSpace>>>) {
+    let file_data = match get_preloaded_elf(path) {
+        Some(data) => data,
+        None => {
+            error!("{} not found in preload cache", path);
+            return (0, None); // Return 0 as error pid or indicator
+        }
+    };
+    warn!("Loaded ELF {} ({} bytes)", path, file_data.len());
+    spawn_task_from_elf(path, pid, handler, &file_data)
+}
+
+pub fn spawn_task_from_bytes(
+    path: &str,
+    file_data: &[u8],
+    pid: usize,
+    handler: SyscallHandler,
+) -> (usize, Option<Arc<Mutex<AddrSpace>>>) {
+    spawn_task_from_elf(path, pid, handler, file_data)
 }

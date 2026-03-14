@@ -2,7 +2,6 @@
 #![no_main]
 
 use core::ptr::write_volatile;
-use ulib::Handle;
 
 // QEMU virt aarch64 PL011 UART MMIO address
 const UART0: usize = 0x0900_0000;
@@ -25,7 +24,7 @@ pub extern "C" fn _start() -> ! {
     ulib::sys_map_device(UART0, 0x1000);
     print_str("serial: PL011 UART driver initialized.\n");
     let mut buf = [0u8; 128];
-    let mut from_pid = Handle::Dynamic(0);
+    let mut from_pid = 0usize;
     loop {
         let mut recv_cap = None;
         let len = ulib::sys_ipc_recv(&mut from_pid, &mut buf, &mut recv_cap);

@@ -1,7 +1,30 @@
 use axerrno::{AxError, AxResult};
+use alloc::sync::Arc;
 
 use crate::process::PROCESS_TABLE;
 use mene_ipc::capability::Capability;
+use mene_ipc::endpoint::Endpoint;
+
+fn service_path_by_handle(handle: usize) -> Option<&'static str> {
+    match handle {
+        2 => Some("/boot/serial"),
+        3 => Some("/boot/vmm"),
+        4 => Some("/boot/virtio_blk"),
+        5 => Some("/boot/fs"),
+        _ => None,
+    }
+}
+
+fn resolve_system_endpoint(
+    handle: usize,
+    ptable: &alloc::collections::BTreeMap<usize, crate::process::ProcessInfo>,
+) -> Option<Arc<Endpoint>> {
+    let path = service_path_by_handle(handle)?;
+    ptable
+        .values()
+        .find(|p| p.app_path == path)
+        .map(|p| p.local_endpoint.clone())
+}
 
 pub struct IpcManager;
 
@@ -21,7 +44,23 @@ impl IpcManager {
             let cspace = process.cspace.lock();
             match cspace.get(&handle) {
                 Some(Capability::Endpoint(ep)) => ep.clone(),
-                _ => return Err(AxError::BadFileDescriptor), // invalid handle
+                _ => {
+                    if let Some(ep) = resolve_system_endpoint(handle, &ptable) {
+                        axlog::warn!(
+                            "ipc: dynamic handle {} resolved for sender pid {}",
+                            handle,
+                            sender_pid
+                        );
+                        ep
+                    } else {
+                        axlog::warn!(
+                            "ipc: dynamic handle {} unresolved for sender pid {}",
+                            handle,
+                            sender_pid
+                        );
+                        return Err(AxError::BadFileDescriptor);
+                    }
+                }
             }
         };
 
@@ -54,14 +93,13 @@ impl IpcManager {
             process.local_endpoint.clone()
         };
 
-        axlog::info!("PID {} waiting for IPC...", current_pid);
+        ep.wq.wait_until(|| ep.has_pending());
         let mut payload = loop {
             if let Some(p) = ep.pop() {
                 break p;
             }
-            ep.wq.wait();
+            ep.wq.wait_until(|| ep.has_pending());
         };
-        axlog::info!("PID {} Woke up!", current_pid);
 
         let msg = payload.message;
         let bytes_to_copy = core::cmp::min(msg.len(), buf.len());

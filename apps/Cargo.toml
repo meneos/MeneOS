@@ -3,8 +3,11 @@ members = [
     "ulib",
     "init",
     "serial",
-    "helloworld"
-, "vmm"]
+    "helloworld",
+    "vmm",
+    "virtio_blk",
+    "fs",
+]
 resolver = "2"
 
 [profile.release]

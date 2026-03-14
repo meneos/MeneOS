@@ -19,3 +19,4 @@ axlog.workspace = true
 mene-config = { version = "0.1.0", path = "../mene-config" }
 axsync = { workspace = true }
 axhal.workspace = true
+axalloc.workspace = true

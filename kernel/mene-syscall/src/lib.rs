@@ -8,7 +8,15 @@ extern crate axlog;
 use alloc::sync::Arc;
 use axhal::uspace::UserContext;
 use axsync::Mutex;
+use core::sync::atomic::{AtomicBool, Ordering};
+use core::time::Duration;
 use mene_abi::{MeneSysno, Sysno};
+
+static PCI_CFG_DEBUG_ONCE: AtomicBool = AtomicBool::new(false);
+
+pub fn preload_boot_assets() -> bool {
+    mene_task::preload_boot_assets()
+}
 
 pub fn spawn_app(path: &str) -> usize {
     let pid = mene_kernel::process::generate_pid();
@@ -26,23 +34,45 @@ pub fn spawn_app(path: &str) -> usize {
         );
 
         let ptable = mene_kernel::process::PROCESS_TABLE.lock();
-        if let Some(p) = ptable.get(&2) {
-            cspace_map.insert(
-                2,
-                mene_ipc::capability::Capability::Endpoint(p.local_endpoint.clone()),
-            );
-        }
-        if let Some(p) = ptable.get(&3) {
-            cspace_map.insert(
-                3,
-                mene_ipc::capability::Capability::Endpoint(p.local_endpoint.clone()),
-            );
-        }
+        mene_kernel::device::inject_bootstrap_capabilities(path, &mut cspace_map, &ptable);
         drop(ptable);
 
         mene_kernel::process::PROCESS_TABLE.lock().insert(
             spawned_pid,
             mene_kernel::process::ProcessInfo {
+                app_path: alloc::string::String::from(path),
+                cspace: axsync::Mutex::new(cspace_map),
+                aspace,
+                local_endpoint,
+            },
+        );
+    }
+
+    spawned_pid
+}
+
+pub fn spawn_app_from_elf(path: &str, elf: &[u8]) -> usize {
+    let pid = mene_kernel::process::generate_pid();
+    mene_kernel::ipc::IpcManager::init_process(pid);
+
+    let (spawned_pid, opt_aspace) = mene_task::spawn_task_from_bytes(path, elf, pid, handle_syscall);
+
+    if let Some(aspace) = opt_aspace {
+        let mut cspace_map = alloc::collections::BTreeMap::new();
+        let local_endpoint = alloc::sync::Arc::new(mene_ipc::endpoint::Endpoint::new());
+        cspace_map.insert(
+            1,
+            mene_ipc::capability::Capability::Endpoint(local_endpoint.clone()),
+        );
+
+        let ptable = mene_kernel::process::PROCESS_TABLE.lock();
+        mene_kernel::device::inject_bootstrap_capabilities(path, &mut cspace_map, &ptable);
+        drop(ptable);
+
+        mene_kernel::process::PROCESS_TABLE.lock().insert(
+            spawned_pid,
+            mene_kernel::process::ProcessInfo {
+                app_path: alloc::string::String::from(path),
                 cspace: axsync::Mutex::new(cspace_map),
                 aspace,
                 local_endpoint,
@@ -74,6 +104,34 @@ pub fn handle_syscall(
                     Err(axerrno::AxError::InvalidInput)
                 }
             }
+            MeneSysno::SpawnElf => {
+                let is_fs_caller = {
+                    let ptable = mene_kernel::process::PROCESS_TABLE.lock();
+                    ptable
+                        .get(&current_pid)
+                        .is_some_and(|p| p.app_path == "/boot/fs")
+                };
+                if !is_fs_caller {
+                    Err(axerrno::AxError::PermissionDenied)
+                } else {
+                let path_ptr = uctx.arg0() as *const u8;
+                let path_len = uctx.arg1();
+                let elf_ptr = uctx.arg2() as *const u8;
+                let elf_len = uctx.arg3();
+
+                if path_ptr.is_null() || elf_ptr.is_null() || path_len == 0 || elf_len == 0 {
+                    Err(axerrno::AxError::InvalidInput)
+                } else {
+                    let path_slice = unsafe { core::slice::from_raw_parts(path_ptr, path_len) };
+                    let elf_slice = unsafe { core::slice::from_raw_parts(elf_ptr, elf_len) };
+                    if let Ok(path) = core::str::from_utf8(path_slice) {
+                        Ok(spawn_app_from_elf(path, elf_slice))
+                    } else {
+                        Err(axerrno::AxError::InvalidInput)
+                    }
+                }
+                }
+            }
             MeneSysno::IpcSend => {
                 let handle = uctx.arg0();
                 let ptr = uctx.arg1() as *const u8;
@@ -101,24 +159,24 @@ pub fn handle_syscall(
             MeneSysno::IpcRecv => {
                 let buf_ptr = uctx.arg0() as *mut u8;
                 let buf_max = uctx.arg1();
-                let from_handle_ptr = uctx.arg2() as *mut usize;
+                let sender_pid_ptr = uctx.arg2() as *mut usize;
                 // Optional arg to receive capability
                 let recv_cap_ptr = uctx.arg3() as *mut usize;
 
                 let buf_slice = unsafe { core::slice::from_raw_parts_mut(buf_ptr, buf_max) };
 
-                let mut from_handle = 0;
+                let mut sender_pid = 0;
                 let mut recv_cap = 0;
                 match mene_kernel::ipc::IpcManager::recv(
                     current_pid,
                     buf_slice,
-                    &mut from_handle,
+                    &mut sender_pid,
                     &mut recv_cap,
                 ) {
                     Ok(copied) => {
-                        if !from_handle_ptr.is_null() {
+                        if !sender_pid_ptr.is_null() {
                             unsafe {
-                                *from_handle_ptr = from_handle;
+                                *sender_pid_ptr = sender_pid;
                             }
                         }
                         if !recv_cap_ptr.is_null() {
@@ -135,6 +193,10 @@ pub fn handle_syscall(
                 }
             }
             MeneSysno::ReadFile => {
+                // Temporary bootstrap ability: only init process can use kernel-fs read.
+                if current_pid != 1 {
+                    Err(axerrno::AxError::PermissionDenied)
+                } else {
                 let path_ptr = uctx.arg0() as *const u8;
                 let path_len = uctx.arg1();
                 let buf_ptr = uctx.arg2() as *mut u8;
@@ -154,11 +216,21 @@ pub fn handle_syscall(
                 } else {
                     Err(axerrno::AxError::InvalidInput)
                 }
+                }
             }
             MeneSysno::MapDevice => {
                 let paddr = uctx.arg0();
                 let length = uctx.arg1();
                 Ok(mene_memory::mmap::do_map_device(paddr, length, aspace_arc))
+            }
+            MeneSysno::MmapAnon => {
+                let length = uctx.arg0();
+                let addr = mene_memory::mmap::do_mmap(0, length, aspace_arc);
+                if addr == !0 {
+                    Err(axerrno::AxError::NoMemory)
+                } else {
+                    Ok(addr)
+                }
             }
             MeneSysno::VmmMapPageTo => {
                 let target_pid = uctx.arg0();
@@ -180,6 +252,93 @@ pub fn handle_syscall(
                     }
                 } else {
                     Err(axerrno::AxError::NoSuchProcess)
+                }
+            }
+            MeneSysno::DmaAlloc => {
+                let length = uctx.arg0();
+                let paddr_out = uctx.arg1() as *mut usize;
+
+                if paddr_out.is_null() || length == 0 {
+                    Err(axerrno::AxError::InvalidInput)
+                } else if let Some((vaddr, paddr)) = mene_memory::mmap::do_dma_alloc(length, aspace_arc) {
+                    unsafe {
+                        *paddr_out = paddr;
+                    }
+                    Ok(vaddr)
+                } else {
+                    Err(axerrno::AxError::NoMemory)
+                }
+            }
+            MeneSysno::PciCfgRead => {
+                let bus = uctx.arg0();
+                let device = uctx.arg1();
+                let function = uctx.arg2();
+                let offset = uctx.arg3();
+
+                if device >= 32 || function >= 8 || offset > 0xffc || (offset & 0x3) != 0 {
+                    Err(axerrno::AxError::InvalidInput)
+                } else {
+                    let ecam_base = mene_kernel::device::pci_ecam_base()
+                        .unwrap_or(axconfig::devices::PCI_ECAM_BASE);
+                    let cfg_addr = ecam_base
+                        + (bus << 20)
+                        + (device << 15)
+                        + (function << 12)
+                        + offset;
+                    let vaddr = axhal::mem::phys_to_virt(memory_addr::PhysAddr::from_usize(cfg_addr));
+                    let val = unsafe { core::ptr::read_volatile(vaddr.as_ptr() as *const u32) };
+                    if PCI_CFG_DEBUG_ONCE
+                        .compare_exchange(false, true, Ordering::SeqCst, Ordering::Relaxed)
+                        .is_ok()
+                    {
+                        axlog::warn!(
+                            "PCI CFG debug: ecam_base={:#x}, bdf={}:{}.{} off={:#x} val={:#x}",
+                            ecam_base,
+                            bus,
+                            device,
+                            function,
+                            offset,
+                            val
+                        );
+                    }
+                    Ok(val as usize)
+                }
+            }
+            MeneSysno::DmaDealloc => {
+                let user_vaddr = uctx.arg0();
+                let paddr = uctx.arg1();
+                let pages = uctx.arg2();
+
+                if pages == 0 {
+                    Ok(0)
+                } else if mene_memory::mmap::do_dma_dealloc(user_vaddr, paddr, pages, aspace_arc)
+                {
+                    Ok(0)
+                } else {
+                    Err(axerrno::AxError::InvalidInput)
+                }
+            }
+            MeneSysno::VirtToPhys => {
+                let user_vaddr = uctx.arg0();
+                match mene_memory::mmap::do_virt_to_phys(user_vaddr, aspace_arc) {
+                    Some(paddr) => Ok(paddr),
+                    None => Err(axerrno::AxError::BadAddress),
+                }
+            }
+            MeneSysno::SleepMs => {
+                let ms = uctx.arg0();
+                axtask::sleep(Duration::from_millis(ms as u64));
+                Ok(0)
+            }
+            MeneSysno::SystemOff => axhal::power::system_off(),
+            MeneSysno::GetBootCfg => {
+                let buf_ptr = uctx.arg0() as *mut u8;
+                let buf_len = uctx.arg1();
+                if buf_ptr.is_null() || buf_len == 0 {
+                    Err(axerrno::AxError::InvalidInput)
+                } else {
+                    let out = unsafe { core::slice::from_raw_parts_mut(buf_ptr, buf_len) };
+                    Ok(mene_task::copy_boot_cfg_to(out))
                 }
             }
         };

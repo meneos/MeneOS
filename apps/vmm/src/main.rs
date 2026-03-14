@@ -1,14 +1,12 @@
 #![no_std]
 #![no_main]
 
-use ulib::Handle;
-
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
     ulib::sys_log("vmm: Memory management service started.");
 
     let mut buf = [0u8; 128];
-    let mut from_pid = Handle::Dynamic(0);
+    let mut from_pid = 0usize;
 
     loop {
         let mut recv_cap = None;
@@ -22,7 +20,7 @@ pub extern "C" fn _start() -> ! {
 
                 ulib::sys_log("vmm: Received MMAP request");
 
-                let vaddr = ulib::sys_vmm_map_page_to(from_pid.to_usize(), 0, size);
+                let vaddr = ulib::sys_vmm_map_page_to(from_pid, 0, size);
 
                 // Send reply back
                 let vaddr_bytes = vaddr.to_le_bytes();

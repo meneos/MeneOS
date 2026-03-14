@@ -1,4 +1,5 @@
 use alloc::collections::BTreeMap;
+use alloc::string::String;
 use alloc::sync::Arc;
 use axmm::AddrSpace;
 use axsync::Mutex;
@@ -10,6 +11,7 @@ lazy_static::lazy_static! {
 }
 
 pub struct ProcessInfo {
+    pub app_path: String,
     pub aspace: Arc<Mutex<AddrSpace>>,
     pub cspace: Mutex<BTreeMap<usize, Capability>>,
     pub local_endpoint: Arc<mene_ipc::endpoint::Endpoint>,

@@ -6,6 +6,7 @@ pub mod ipc;
 pub mod memory;
 pub mod process;
 pub mod trap;
+pub mod device;
 
 // Re-exports for convenience
 pub use ipc::IpcManager;

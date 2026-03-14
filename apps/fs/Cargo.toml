@@ -1,0 +1,8 @@
+[package]
+name = "fs"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ulib = { path = "../ulib" }
+axfatfs = { version = "0.1.0-pre.0", default-features = false, features = ["alloc", "lfn", "unicode"] }
