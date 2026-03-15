@@ -8,6 +8,7 @@ use core::arch::asm;
 use core::panic::PanicInfo;
 use mene_abi::{MeneSysno, Sysno};
 pub use mene_abi::blk;
+pub use mene_abi::control;
 pub use mene_abi::fs;
 pub use mene_abi::Handle;
 
@@ -124,6 +125,8 @@ pub fn sys_ipc_recv_timeout(
     timeout_ms: usize,
 ) -> isize {
     let mut meta = [0usize; 2];
+    *from_pid = 0;
+    *recv_cap = None;
     let res = syscall(
         MeneSysno::IpcRecvTimeout as usize,
         buf.as_mut_ptr() as usize,
@@ -132,15 +135,19 @@ pub fn sys_ipc_recv_timeout(
         timeout_ms,
     ) as isize;
 
-    if res >= 0 {
+    if res >= 0 && (res as usize) <= buf.len() && (res == 0 || meta[0] != 0) {
         *from_pid = meta[0];
         if meta[1] != 0 {
             *recv_cap = Some(Handle::from_usize(meta[1]));
         } else {
             *recv_cap = None;
         }
+        return res;
     }
-    res
+
+    // Kernel-side errno encoding may be platform-dependent. If the return value is
+    // out of message length range, treat it as an error and do not consume stale data.
+    -1
 }
 
 pub fn sys_exit(code: i32) -> ! {
@@ -192,9 +199,100 @@ pub fn sys_sleep_ms(ms: usize) {
     let _ = syscall(MeneSysno::SleepMs as usize, ms, 0, 0, 0);
 }
 
+pub fn sys_uptime_ms() -> usize {
+    syscall(MeneSysno::UptimeMs as usize, 0, 0, 0, 0)
+}
+
 pub fn sys_system_off() -> ! {
     let _ = syscall(MeneSysno::SystemOff as usize, 0, 0, 0, 0);
     loop {}
+}
+
+pub fn ctl_register_service(name: &str) -> bool {
+    let n = name.as_bytes();
+    if n.is_empty() || n.len() > control::MAX_SERVICE_NAME {
+        return false;
+    }
+
+    let mut req = [0u8; control::HDR_LEN + control::MAX_SERVICE_NAME];
+    req[0..2].copy_from_slice(&control::REQ_REGISTER_SERVICE.to_le_bytes());
+    req[2..4].copy_from_slice(&(n.len() as u16).to_le_bytes());
+    req[4..4 + n.len()].copy_from_slice(n);
+
+    // Pass our local endpoint capability to the registry.
+    sys_ipc_send_checked(
+        Handle::InitEndpoint,
+        &req[..control::HDR_LEN + n.len()],
+        Some(Handle::LocalEndpoint),
+    )
+}
+
+pub fn ctl_lookup_service(name: &str, timeout_ms: usize) -> Option<Handle> {
+    let n = name.as_bytes();
+    if n.is_empty() || n.len() > control::MAX_SERVICE_NAME {
+        return None;
+    }
+
+    let mut req = [0u8; control::HDR_LEN + control::MAX_SERVICE_NAME];
+    req[0..2].copy_from_slice(&control::REQ_LOOKUP_SERVICE.to_le_bytes());
+    req[2..4].copy_from_slice(&(n.len() as u16).to_le_bytes());
+    req[4..4 + n.len()].copy_from_slice(n);
+
+    // Pass our local endpoint as reply capability.
+    if !sys_ipc_send_checked(
+        Handle::InitEndpoint,
+        &req[..control::HDR_LEN + n.len()],
+        Some(Handle::LocalEndpoint),
+    ) {
+        return None;
+    }
+
+    let mut from_pid = 0usize;
+    let mut recv_cap = None;
+    let mut resp = [0u8; 16];
+    let n = sys_ipc_recv_timeout(&mut from_pid, &mut resp, &mut recv_cap, timeout_ms);
+    if n < 0 {
+        return None;
+    }
+    if (n as usize) >= 2 && &resp[..2] == b"OK" {
+        return recv_cap;
+    }
+    None
+}
+
+pub fn ctl_device_query_usize(key: &str, timeout_ms: usize) -> Option<usize> {
+    let n = key.as_bytes();
+    if n.is_empty() || n.len() > control::MAX_SERVICE_NAME {
+        return None;
+    }
+
+    let mut req = [0u8; control::HDR_LEN + control::MAX_SERVICE_NAME];
+    req[0..2].copy_from_slice(&control::REQ_DEVICE_QUERY.to_le_bytes());
+    req[2..4].copy_from_slice(&(n.len() as u16).to_le_bytes());
+    req[4..4 + n.len()].copy_from_slice(n);
+
+    if !sys_ipc_send_checked(
+        Handle::InitEndpoint,
+        &req[..control::HDR_LEN + n.len()],
+        Some(Handle::LocalEndpoint),
+    ) {
+        return None;
+    }
+
+    let mut from_pid = 0usize;
+    let mut recv_cap = None;
+    let mut resp = [0u8; 16];
+    let n = sys_ipc_recv_timeout(&mut from_pid, &mut resp, &mut recv_cap, timeout_ms);
+    if n < 0 {
+        return None;
+    }
+    let n = n as usize;
+    if n < 10 || &resp[..2] != b"OK" {
+        return None;
+    }
+    let mut raw = [0u8; 8];
+    raw.copy_from_slice(&resp[2..10]);
+    Some(u64::from_le_bytes(raw) as usize)
 }
 
 pub fn init_allocator() {

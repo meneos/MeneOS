@@ -77,13 +77,13 @@ pub fn run(args: MeneRootfsArgs) -> Result<()> {
         }
     }
 
-    println!("Copying boot.cfg to /boot/...");
+    println!("Copying boot.toml to /boot/...");
     let status = Command::new("vdisk")
-        .args([disk_img, "cp", "host:apps/boot.cfg", "/boot/"])
+        .args([disk_img, "cp", "host:apps/boot.toml", "/boot/"])
         .status()?;
 
     if !status.success() {
-        return Err(XtaskError::Message("Failed to copy boot.cfg".into()));
+        return Err(XtaskError::Message("Failed to copy boot.toml".into()));
     }
 
     println!("mene-rootfs completed successfully.");

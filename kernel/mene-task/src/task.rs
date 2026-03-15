@@ -4,7 +4,7 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 use axhal::paging::MappingFlags;
 use axhal::uspace::{ReturnReason, UserContext};
-use axlog::{error, warn};
+use axlog::error;
 use axmm::AddrSpace;
 use axsync::Mutex;
 use axtask::{TaskInner, spawn_task as ax_spawn_task};
@@ -20,10 +20,10 @@ lazy_static::lazy_static! {
 }
 
 pub fn preload_boot_assets() -> bool {
-    let boot_cfg_bytes = match axfs::api::read("/boot/boot.cfg") {
+    let boot_cfg_bytes = match axfs::api::read("/boot/boot.toml") {
         Ok(data) => data,
         Err(e) => {
-            error!("Failed to read /boot/boot.cfg during preload: {:?}", e);
+            error!("Failed to read /boot/boot.toml during preload: {:?}", e);
             return false;
         }
     };
@@ -31,7 +31,7 @@ pub fn preload_boot_assets() -> bool {
     let boot_cfg = match core::str::from_utf8(&boot_cfg_bytes) {
         Ok(s) => s,
         Err(_) => {
-            error!("/boot/boot.cfg is not valid UTF-8");
+            error!("/boot/boot.toml is not valid UTF-8");
             return false;
         }
     };
@@ -57,11 +57,10 @@ pub fn preload_boot_assets() -> bool {
         }
         match axfs::api::read(path) {
             Ok(data) => {
-                warn!("Preloaded app {} ({} bytes)", path, data.len());
                 cache.insert(String::from(path), data);
             }
             Err(e) => {
-                warn!("Preload skipped {}: {:?}", path, e);
+                error!("Preload skipped {}: {:?}", path, e);
             }
         }
     }
@@ -87,8 +86,6 @@ fn spawn_task_from_elf(
     handler: SyscallHandler,
     file_data: &[u8],
 ) -> (usize, Option<Arc<Mutex<AddrSpace>>>) {
-    warn!("Spawning app: {} with PID {}", path, pid);
-
     let elf = ElfFile::new(file_data).expect("Invalid ELF");
     let entry_point = elf.header.pt2.entry_point();
 
@@ -142,7 +139,6 @@ fn spawn_task_from_elf(
         move || {
             let _keep = aspace_clone.clone();
             let mut uctx_run = uctx;
-            warn!("Entering user mode for {} (PID {})", path_clone, pid);
             loop {
                 let reason = uctx_run.run();
                 match reason {
@@ -185,7 +181,6 @@ pub fn spawn_task(
             return (0, None); // Return 0 as error pid or indicator
         }
     };
-    warn!("Loaded ELF {} ({} bytes)", path, file_data.len());
     spawn_task_from_elf(path, pid, handler, &file_data)
 }
 

@@ -33,6 +33,15 @@ pub mod fs {
     pub const RESP_REQID_LEN: usize = 4;
 }
 
+pub mod control {
+    pub const REQ_REGISTER_SERVICE: u16 = 1;
+    pub const REQ_LOOKUP_SERVICE: u16 = 2;
+    pub const REQ_DEVICE_QUERY: u16 = 3;
+
+    pub const MAX_SERVICE_NAME: usize = 32;
+    pub const HDR_LEN: usize = 4; // opcode(2) + name_len(2)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(usize)]
 pub enum MeneSysno {
@@ -52,6 +61,7 @@ pub enum MeneSysno {
     SpawnElf = 513,
     MmapAnon = 514,
     IpcRecvTimeout = 515,
+    UptimeMs = 516,
 }
 
 impl core::convert::TryFrom<usize> for MeneSysno {
@@ -74,6 +84,7 @@ impl core::convert::TryFrom<usize> for MeneSysno {
             513 => Ok(Self::SpawnElf),
             514 => Ok(Self::MmapAnon),
             515 => Ok(Self::IpcRecvTimeout),
+            516 => Ok(Self::UptimeMs),
             _ => Err(()),
         }
     }
@@ -86,6 +97,7 @@ pub enum Handle {
     VmmEndpoint,
     VirtioBlkEndpoint,
     FsEndpoint,
+    InitEndpoint,
     Dynamic(usize),
 }
 
@@ -95,6 +107,7 @@ impl Handle {
     pub const VMM_ENDPOINT: usize = 3;
     pub const VIRTIO_BLK_ENDPOINT: usize = 4;
     pub const FS_ENDPOINT: usize = 5;
+    pub const INIT_ENDPOINT: usize = 6;
 
     pub fn to_usize(&self) -> usize {
         match self {
@@ -103,6 +116,7 @@ impl Handle {
             Handle::VmmEndpoint => Self::VMM_ENDPOINT,
             Handle::VirtioBlkEndpoint => Self::VIRTIO_BLK_ENDPOINT,
             Handle::FsEndpoint => Self::FS_ENDPOINT,
+            Handle::InitEndpoint => Self::INIT_ENDPOINT,
             Handle::Dynamic(v) => *v,
         }
     }
@@ -114,6 +128,7 @@ impl Handle {
             Self::VMM_ENDPOINT => Handle::VmmEndpoint,
             Self::VIRTIO_BLK_ENDPOINT => Handle::VirtioBlkEndpoint,
             Self::FS_ENDPOINT => Handle::FsEndpoint,
+            Self::INIT_ENDPOINT => Handle::InitEndpoint,
             _ => Handle::Dynamic(val),
         }
     }

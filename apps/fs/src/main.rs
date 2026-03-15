@@ -7,7 +7,7 @@ use alloc::vec::Vec;
 use axfatfs::{
     FileSystem, FsOptions, LossyOemCpConverter, NullTimeProvider, Read, Seek, SeekFrom, Write,
 };
-use core::sync::atomic::{AtomicU32, Ordering};
+use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use ulib::blk;
 use ulib::fs::{
     FLAG_REQID, MAX_DATA, MAX_PATH, PATH_HDR_LEN, PATH_HDR_LEN_V2, REQ_DELETE, REQ_EXEC,
@@ -17,9 +17,21 @@ use ulib::fs::{
 type FsType = FileSystem<VirtioBlkDisk, NullTimeProvider, LossyOemCpConverter>;
 
 static BLK_REQ_ID: AtomicU32 = AtomicU32::new(1);
+static BLK_SERVICE_HANDLE: AtomicUsize = AtomicUsize::new(0);
 
 fn next_blk_req_id() -> u32 {
     BLK_REQ_ID.fetch_add(1, Ordering::Relaxed)
+}
+
+fn blk_service_handle() -> ulib::Handle {
+    let cached = BLK_SERVICE_HANDLE.load(Ordering::Relaxed);
+    if cached != 0 {
+        return ulib::Handle::from_usize(cached);
+    }
+
+    let resolved = ulib::ctl_lookup_service("virtio_blk", 100).unwrap_or(ulib::Handle::VirtioBlkEndpoint);
+    BLK_SERVICE_HANDLE.store(resolved.to_usize(), Ordering::Relaxed);
+    resolved
 }
 
 struct VirtioBlkDisk {
@@ -174,11 +186,7 @@ fn blk_call(req: &[u8], resp: &mut [u8]) -> usize {
     tagged[6..6 + (req.len() - 2)].copy_from_slice(&req[2..]);
     let tagged_len = req.len() + blk::TAG_LEN;
 
-    if !ulib::sys_ipc_send_checked(
-        ulib::Handle::VirtioBlkEndpoint,
-        &tagged[..tagged_len],
-        Some(ulib::Handle::LocalEndpoint),
-    ) {
+    if !ulib::sys_ipc_send_checked(blk_service_handle(), &tagged[..tagged_len], Some(ulib::Handle::LocalEndpoint)) {
         return 0;
     }
 
@@ -236,7 +244,7 @@ fn read_file_all(
     file.seek(SeekFrom::Start(0)).ok()?;
 
     let mut out = Vec::with_capacity(size);
-    let mut chunk = [0u8; 512];
+    let mut chunk = [0u8; blk::MAX_IO_BYTES];
     loop {
         let n = file.read(&mut chunk).ok()?;
         if n == 0 {
@@ -267,6 +275,7 @@ fn ensure_fs(fs: &mut Option<FsType>) -> bool {
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
     ulib::init_allocator();
+    let _ = ulib::ctl_register_service("fs");
     ulib::sys_log("fs: service started (axfatfs)");
     let mut fs: Option<FsType> = None;
 

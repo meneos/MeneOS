@@ -1,0 +1,24 @@
+[service.serial]
+binary = "/boot/serial"
+depends_on = ""
+restart_policy = "always"
+health_probe = "none"
+
+[service.virtio_blk]
+binary = "/boot/virtio_blk"
+depends_on = "serial"
+restart_policy = "on-failure"
+health_probe = "blk_ping"
+
+[service.fs]
+binary = "/boot/fs"
+depends_on = "serial,virtio_blk"
+restart_policy = "on-failure"
+health_probe = "fs_ping"
+
+[service.helloworld]
+binary = "/boot/helloworld"
+depends_on = "fs"
+restart_policy = "one-shot"
+health_probe = "none"
+launch = "fs_exec"

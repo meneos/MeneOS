@@ -60,7 +60,7 @@
 ## 3. 启动编排是脚本化硬编码，而非服务图模型
 
 ### 现象
-- 启动顺序依赖 boot.cfg 的 boot_pre / boot_post。
+- 启动顺序依赖 boot.toml 的服务图配置。
 - 服务角色由路径名称隐式表达。
 
 ### 架构影响
@@ -68,7 +68,7 @@
 - 难以表达依赖拓扑、并行启动、失败重试与降级策略。
 
 ### 建议
-- 将 boot.cfg 演进为“服务清单 + 依赖图 + 启动策略”：
+- 将 boot.toml 演进为“服务清单 + 依赖图 + 启动策略”：
   - name
   - binary
   - depends_on
@@ -233,6 +233,36 @@
 - Core 保持小且稳定
 - 策略集中在控制面
 - 业务服务可替换、可扩展、可回归测试
+
+### 与现有代码模块的落地映射（建议）
+
+1) Microkernel Core（只保留原语）
+- 对应模块：`kernel/mene-kernel`、`kernel/mene-task`、`kernel/mene-ipc`、`kernel/mene-memory`、`kernel/mene-trap`、`kernel/mene-syscall`
+- 约束：
+  - 仅暴露“线程/地址空间/IPC/trap”最小原语。
+  - 不承载服务策略（如重启策略、服务发现策略、设备分配策略）。
+  - syscall 层只做能力检查与对象路由，不做业务编排。
+
+2) System Control Plane（集中策略与编排）
+- 对应模块：优先作为特权系统服务落在 `apps/init`（后续可拆分 supervisor/registry/device-manager/vmm-policy 四个服务）。
+- 约束：
+  - 统一管理进程生命周期、服务注册发现、设备资源分配、VMM 策略。
+  - 通过 IPC 调用 Core 原语，不新增“旁路内核接口”。
+  - 失败恢复、依赖拓扑、版本选择等都在控制面收敛。
+
+3) User Services（业务能力服务化）
+- 对应模块：`apps/fs`、`apps/serial`、`apps/virtio_blk`、`apps/init`
+- 约束：
+  - 服务只关注领域逻辑（文件、串口、块设备、会话管理）。
+  - 通过 Service Registry 获取依赖，不硬编码固定句柄与固定路径。
+  - 升级/替换通过协议兼容与注册信息完成，不要求改内核。
+
+### 分层边界判定规则（可用于代码审查）
+
+- 若代码回答的是“如何调度/映射/分发中断”，归 Core。
+- 若代码回答的是“谁启动谁、失败如何恢复、资源如何分配”，归 Control Plane。
+- 若代码回答的是“如何实现具体业务能力”，归 User Services。
+- 若一个改动同时触及两层及以上，默认先拆分为“原语接口变更 + 控制面策略变更 + 服务实现变更”三个提交。
 
 ---
 

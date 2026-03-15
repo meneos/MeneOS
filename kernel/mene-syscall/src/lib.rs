@@ -8,11 +8,8 @@ extern crate axlog;
 use alloc::sync::Arc;
 use axhal::uspace::UserContext;
 use axsync::Mutex;
-use core::sync::atomic::{AtomicBool, Ordering};
 use core::time::Duration;
 use mene_abi::{MeneSysno, Sysno};
-
-static PCI_CFG_DEBUG_ONCE: AtomicBool = AtomicBool::new(false);
 
 pub fn preload_boot_assets() -> bool {
     mene_task::preload_boot_assets()
@@ -140,21 +137,8 @@ pub fn handle_syscall(
                 let passed_cap = uctx.arg3();
                 let slice = unsafe { core::slice::from_raw_parts(ptr, len) };
 
-                axlog::info!("PID {} sending IPC to handle {}", current_pid, handle);
-                match mene_kernel::ipc::IpcManager::send(current_pid, handle, slice, passed_cap) {
-                    Ok(_) => {
-                        axlog::info!("IPC sent via handle {} success", handle);
-                        Ok(0)
-                    }
-                    Err(e) => {
-                        axlog::warn!(
-                            "IPC send failed, handle {} missing/invalid, error {:?}",
-                            handle,
-                            e
-                        );
-                        Err(e)
-                    }
-                }
+                mene_kernel::ipc::IpcManager::send(current_pid, handle, slice, passed_cap)
+                    .map(|_| 0)
             }
             MeneSysno::IpcRecv => {
                 let buf_ptr = uctx.arg0() as *mut u8;
@@ -222,6 +206,10 @@ pub fn handle_syscall(
                         Err(e) => Err(e),
                     }
                 }
+            }
+            MeneSysno::UptimeMs => {
+                let now_ns = axhal::time::monotonic_time_nanos();
+                Ok((now_ns / 1_000_000) as usize)
             }
             MeneSysno::ReadFile => {
                 // Temporary bootstrap ability: only init process can use kernel-fs read.
@@ -318,20 +306,6 @@ pub fn handle_syscall(
                         + offset;
                     let vaddr = axhal::mem::phys_to_virt(memory_addr::PhysAddr::from_usize(cfg_addr));
                     let val = unsafe { core::ptr::read_volatile(vaddr.as_ptr() as *const u32) };
-                    if PCI_CFG_DEBUG_ONCE
-                        .compare_exchange(false, true, Ordering::SeqCst, Ordering::Relaxed)
-                        .is_ok()
-                    {
-                        axlog::warn!(
-                            "PCI CFG debug: ecam_base={:#x}, bdf={}:{}.{} off={:#x} val={:#x}",
-                            ecam_base,
-                            bus,
-                            device,
-                            function,
-                            offset,
-                            val
-                        );
-                    }
                     Ok(val as usize)
                 }
             }

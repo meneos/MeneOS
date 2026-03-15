@@ -18,9 +18,9 @@ const MOCK_BLOCK_SIZE: usize = SECTOR_SIZE;
 const MOCK_BLOCK_COUNT: usize = 256;
 
 static mut MOCK_DISK: [u8; MOCK_BLOCK_SIZE * MOCK_BLOCK_COUNT] = [0; MOCK_BLOCK_SIZE * MOCK_BLOCK_COUNT];
-const VIRTIO_BLK_MMIO_PADDR: usize = 0x0a00_0000;
-const VIRTIO_BLK_MMIO_SIZE: usize = 0x1000;
-const PCI_ECAM_BASE: usize = 0x4010_000000;
+const FALLBACK_VIRTIO_BLK_MMIO_PADDR: usize = 0x0a00_0000;
+const FALLBACK_VIRTIO_BLK_MMIO_SIZE: usize = 0x1000;
+const FALLBACK_PCI_ECAM_BASE: usize = 0x4010_000000;
 const PCI_ECAM_SIZE: usize = 0x1000_0000;
 const PCI_VENDOR_VIRTIO: usize = 0x1af4;
 const PCI_DEVICE_VIRTIO_BLK_LEGACY: usize = 0x1001;
@@ -166,13 +166,19 @@ impl Backend {
 }
 
 fn init_backend() -> Backend {
-    if let Some(dev) = try_init_virtio_pci() {
+    let pci_ecam = ulib::ctl_device_query_usize("pci.ecam_base", 100)
+        .unwrap_or(FALLBACK_PCI_ECAM_BASE);
+    if let Some(dev) = try_init_virtio_pci(pci_ecam) {
         ulib::sys_log("virtio-blk: using PCI transport backend");
         return Backend::RealPci(dev);
     }
     ulib::sys_log("virtio-blk: PCI transport init failed, trying fixed MMIO path");
 
-    if let Some(dev) = try_init_virtio_at(VIRTIO_BLK_MMIO_PADDR, VIRTIO_BLK_MMIO_SIZE) {
+    let mmio_base = ulib::ctl_device_query_usize("virtio_blk.mmio_base", 100)
+        .unwrap_or(FALLBACK_VIRTIO_BLK_MMIO_PADDR);
+    let mmio_size = ulib::ctl_device_query_usize("virtio_blk.mmio_size", 100)
+        .unwrap_or(FALLBACK_VIRTIO_BLK_MMIO_SIZE);
+    if let Some(dev) = try_init_virtio_at(mmio_base, mmio_size) {
         ulib::sys_log("virtio-blk: using fixed MMIO backend");
         return Backend::RealMmio(dev);
     }
@@ -197,8 +203,8 @@ fn try_init_virtio_at(mmio_paddr: usize, mmio_size: usize) -> Option<VirtIOBlk<U
     VirtIOBlk::<UserVirtHal, _>::new(transport).ok()
 }
 
-fn try_init_virtio_pci() -> Option<VirtIOBlk<UserVirtHal, PciTransport>> {
-    let ecam_vaddr = ulib::sys_map_device(PCI_ECAM_BASE, PCI_ECAM_SIZE);
+fn try_init_virtio_pci(ecam_base: usize) -> Option<VirtIOBlk<UserVirtHal, PciTransport>> {
+    let ecam_vaddr = ulib::sys_map_device(ecam_base, PCI_ECAM_SIZE);
     if ecam_vaddr == !0 {
         ulib::sys_log("virtio-blk: map PCI ECAM failed");
         return None;
@@ -245,6 +251,7 @@ pub extern "C" fn _start() -> ! {
     // Keep early logs through serial service.
     ulib::sys_log("virtio-blk: service started");
     ulib::init_allocator();
+    let _ = ulib::ctl_register_service("virtio_blk");
 
     let mut backend = init_backend();
 

@@ -12,6 +12,7 @@ fn service_path_by_handle(handle: usize) -> Option<&'static str> {
         3 => Some("/boot/vmm"),
         4 => Some("/boot/virtio_blk"),
         5 => Some("/boot/fs"),
+        6 => Some("/boot/init"),
         _ => None,
     }
 }
@@ -45,23 +46,7 @@ impl IpcManager {
             let cspace = process.cspace.lock();
             match cspace.get(&handle) {
                 Some(Capability::Endpoint(ep)) => ep.clone(),
-                _ => {
-                    if let Some(ep) = resolve_system_endpoint(handle, &ptable) {
-                        axlog::warn!(
-                            "ipc: dynamic handle {} resolved for sender pid {}",
-                            handle,
-                            sender_pid
-                        );
-                        ep
-                    } else {
-                        axlog::warn!(
-                            "ipc: dynamic handle {} unresolved for sender pid {}",
-                            handle,
-                            sender_pid
-                        );
-                        return Err(AxError::BadFileDescriptor);
-                    }
-                }
+                _ => resolve_system_endpoint(handle, &ptable).ok_or(AxError::BadFileDescriptor)?,
             }
         };
 
