@@ -17,9 +17,9 @@ pub fn preload_boot_assets() -> bool {
 
 pub fn spawn_app(path: &str) -> usize {
     let pid = mene_kernel::process::generate_pid();
+    mene_kernel::process::ProcessSupervisor::register_process(pid);
     mene_kernel::ipc::IpcManager::init_process(pid);
 
-    // Pass execution down to the mene-task component
     let (spawned_pid, opt_aspace) = mene_task::spawn_task(path, pid, handle_syscall);
 
     if let Some(aspace) = opt_aspace {
@@ -43,6 +43,11 @@ pub fn spawn_app(path: &str) -> usize {
                 local_endpoint,
             },
         );
+
+        mene_kernel::process::ProcessSupervisor::transition_state(
+            spawned_pid,
+            mene_kernel::process::ProcessState::Ready,
+        );
     }
 
     spawned_pid
@@ -50,6 +55,7 @@ pub fn spawn_app(path: &str) -> usize {
 
 pub fn spawn_app_from_elf(path: &str, elf: &[u8]) -> usize {
     let pid = mene_kernel::process::generate_pid();
+    mene_kernel::process::ProcessSupervisor::register_process(pid);
     mene_kernel::ipc::IpcManager::init_process(pid);
 
     let (spawned_pid, opt_aspace) =
@@ -75,6 +81,11 @@ pub fn spawn_app_from_elf(path: &str, elf: &[u8]) -> usize {
                 aspace,
                 local_endpoint,
             },
+        );
+
+        mene_kernel::process::ProcessSupervisor::transition_state(
+            spawned_pid,
+            mene_kernel::process::ProcessState::Ready,
         );
     }
 
@@ -453,12 +464,13 @@ pub fn handle_syscall(
             }
             Sysno::exit | Sysno::exit_group => {
                 let code = uctx.arg0() as i32;
+                mene_kernel::process::ProcessSupervisor::mark_process_exited(current_pid, code);
                 mene_kernel::ipc::IpcManager::cleanup_process(current_pid);
                 mene_kernel::process::PROCESS_TABLE
                     .lock()
                     .remove(&current_pid);
+                mene_kernel::process::ProcessSupervisor::cleanup_process(current_pid);
                 axtask::exit(code);
-                // unreachable
             }
             _ => {}
         }

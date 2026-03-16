@@ -2304,6 +2304,7 @@ dependencies = [
 name = "mene-ipc"
 version = "0.1.0"
 dependencies = [
+ "axerrno 0.2.2",
  "axsync",
  "axtask",
 ]

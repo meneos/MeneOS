@@ -19,8 +19,8 @@ pub fn invoke(workspace: &Workspace, args: &MakeArgs, target: &str) -> Result<()
 fn build_command_args(workspace: &Workspace, args: &MakeArgs, target: &str) -> Vec<String> {
     let mut command = vec![
         "-C".to_string(),
-        workspace.arceos_dir.display().to_string(),
-        format!("A={}", workspace.app_dir.display()),
+        workspace.arceos_dir.display().to_string().replace('\\', "/"),
+        format!("A={}", workspace.app_dir.display().to_string().replace('\\', "/")),
         format!("ARCH={}", args.arch),
     ];
 
@@ -43,12 +43,12 @@ fn build_command_args(workspace: &Workspace, args: &MakeArgs, target: &str) -> V
         if let Ok(disk_img) = std::env::var("DISK_IMG") {
             command.push(format!(
                 "DISK_IMG={}",
-                workspace.root_dir.join(disk_img).display()
+                workspace.root_dir.join(disk_img).display().to_string().replace('\\', "/")
             ));
         } else {
             command.push(format!(
                 "DISK_IMG={}",
-                workspace.root_dir.join("disk.img").display()
+                workspace.root_dir.join("disk.img").display().to_string().replace('\\', "/")
             ));
         }
     }
@@ -70,11 +70,11 @@ fn build_command_args(workspace: &Workspace, args: &MakeArgs, target: &str) -> V
     command.extend(args.make_args.clone());
     command.push(format!(
         "TARGET_DIR={}",
-        workspace.root_dir.join("target").display()
+        workspace.root_dir.join("target").display().to_string().replace('\\', "/")
     ));
     command.push(format!(
         "OUT_CONFIG={}",
-        workspace.root_dir.join(".axconfig.toml").display()
+        workspace.root_dir.join(".axconfig.toml").display().to_string().replace('\\', "/")
     ));
     command.push(target.to_string());
     command

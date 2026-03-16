@@ -13,3 +13,4 @@ categories.workspace = true
 [dependencies]
 axsync.workspace = true
 axtask.workspace = true
+axerrno.workspace = true

@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(*)",
+      "Bash(make clean:*)",
+      "Bash(cargo axplat:*)",
+      "Bash(axconfig-gen --version)",
+      "Bash(axconfig-gen \"C:\\\\Users\\\\Debin\\\\.cargo\\\\registry\\\\src\\\\rsproxy.cn-e3de039b2554c837\\\\axplat-aarch64-qemu-virt-0.3.1-pre.6\\\\axconfig.toml\" -r package)",
+      "Bash(make -n ARCH=aarch64 A=../entry build)",
+      "Bash(PLAT_CONFIG='C:\\\\Users\\\\Debin\\\\.cargo\\\\registry\\\\src\\\\rsproxy.cn-e3de039b2554c837\\\\axplat-aarch64-qemu-virt-0.3.1-pre.6\\\\axconfig.toml')",
+      "Bash(axconfig-gen \"$PLAT_CONFIG\" -r package)",
+      "Bash(where cargo-axplat:*)",
+      "Bash(cargo-axplat --version)",
+      "Bash(cargo clean:*)",
+      "Bash(cargo build:*)",
+      "Bash(\"d:\\\\Desktop\\\\Codes\\\\MeneOS\\\\kernel\\\\mene-kernel\\\\src\\\\ipc\\\\mod.rs\")"
+    ]
+  }
+}
