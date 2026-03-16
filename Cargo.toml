@@ -4,7 +4,7 @@ members = [
     "entry", "kernel/mene-abi", "kernel/mene-config", "kernel/mene-init", "kernel/mene-ipc", "kernel/mene-kernel", "kernel/mene-memory", "kernel/mene-syscall", "kernel/mene-task", "kernel/mene-trap",
     "xtask"
 ]
-exclude = []
+exclude = ["apps/syscall_compat"]
 
 [workspace.package]
 version = "0.1.0"

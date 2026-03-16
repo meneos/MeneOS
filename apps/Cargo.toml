@@ -9,6 +9,7 @@ members = [
     "fs",
 ]
 resolver = "2"
+exclude = ["syscall_compat"]
 
 [profile.release]
 panic = "abort"

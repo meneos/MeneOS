@@ -80,6 +80,55 @@ fn get_preloaded_elf(path: &str) -> Option<Vec<u8>> {
     PRELOADED_ELFS.lock().get(path).cloned()
 }
 
+fn init_linux_user_stack(
+    aspace: &mut AddrSpace,
+    stack_top: VirtAddr,
+    argv0: &str,
+    entry_point: usize,
+) -> VirtAddr {
+    const AT_NULL: usize = 0;
+    const AT_PAGESZ: usize = 6;
+    const AT_ENTRY: usize = 9;
+
+    let mut sp = stack_top.as_usize();
+
+    let mut argv0_raw = [0u8; 64];
+    let name = argv0.as_bytes();
+    let n = core::cmp::min(name.len(), argv0_raw.len() - 1);
+    argv0_raw[..n].copy_from_slice(&name[..n]);
+    argv0_raw[n] = 0;
+
+    sp -= n + 1;
+    let argv0_ptr = sp;
+    aspace.write(VirtAddr::from_usize(argv0_ptr), &argv0_raw[..n + 1]).unwrap();
+
+    let words: [usize; 10] = [
+        1,         // argc
+        argv0_ptr, // argv[0]
+        0,         // argv[1]
+        0,         // envp[0]
+        AT_PAGESZ,
+        4096,
+        AT_ENTRY,
+        entry_point,
+        AT_NULL,
+        0,
+    ];
+
+    let mut raw = [0u8; 10 * core::mem::size_of::<usize>()];
+    for (i, w) in words.iter().enumerate() {
+        let bytes = w.to_ne_bytes();
+        let off = i * core::mem::size_of::<usize>();
+        raw[off..off + core::mem::size_of::<usize>()].copy_from_slice(&bytes);
+    }
+
+    sp -= raw.len();
+    sp &= !0x0f;
+    let sp_vaddr = VirtAddr::from_usize(sp);
+    aspace.write(sp_vaddr, &raw).unwrap();
+    sp_vaddr
+}
+
 fn spawn_task_from_elf(
     path: &str,
     pid: usize,
@@ -130,7 +179,8 @@ fn spawn_task_from_elf(
         )
         .unwrap();
 
-    let uctx = UserContext::new((entry_point as usize).into(), stack_top.into(), 0);
+    let user_sp = init_linux_user_stack(&mut aspace, stack_top, path, entry_point as usize);
+    let uctx = UserContext::new((entry_point as usize).into(), user_sp.into(), 0);
     let aspace_arc = Arc::new(Mutex::new(aspace));
     let aspace_clone = aspace_arc.clone();
 

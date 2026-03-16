@@ -30,6 +30,35 @@ pub fn run(args: MeneRootfsArgs) -> Result<()> {
         return Err(XtaskError::Message("Failed to build apps".into()));
     }
 
+    let compat_target = match args.arch.as_str() {
+        "aarch64" => "aarch64-unknown-linux-musl",
+        _ => {
+            return Err(XtaskError::Message(format!(
+                "Unsupported architecture for syscall_compat: {}",
+                args.arch
+            )));
+        }
+    };
+
+    println!("Building syscall_compat in release mode for {}...", compat_target);
+    let status = Command::new("cargo")
+        .env("CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER", "rust-lld")
+        .args([
+            "build",
+            "--release",
+            "--target",
+            compat_target,
+            "--manifest-path",
+            "apps/syscall_compat/Cargo.toml",
+        ])
+        .status()?;
+
+    if !status.success() {
+        return Err(XtaskError::Message(
+            "Failed to build syscall_compat (linux-musl target). Install target via `rustup target add aarch64-unknown-linux-musl`".into(),
+        ));
+    }
+
     let disk_img = "disk.img";
 
     if !std::path::Path::new(disk_img).exists() {
@@ -66,6 +95,9 @@ pub fn run(args: MeneRootfsArgs) -> Result<()> {
     }
 
     for app in apps {
+        if app == "syscall_compat" {
+            continue;
+        }
         let host_path = format!("host:apps/target/{}/release/{}", target, app);
         println!("Copying {} to /boot/...", app);
         let status = Command::new("vdisk")
@@ -75,6 +107,20 @@ pub fn run(args: MeneRootfsArgs) -> Result<()> {
         if !status.success() {
             return Err(XtaskError::Message(format!("Failed to copy {}", app)));
         }
+    }
+
+    let compat_host_path = format!(
+        "host:apps/syscall_compat/target/{}/release/syscall_compat",
+        compat_target
+    );
+    println!("Copying syscall_compat to /boot/...");
+    let status = Command::new("vdisk")
+        .args([disk_img, "cp", &compat_host_path, "/boot/"])
+        .status()?;
+    if !status.success() {
+        return Err(XtaskError::Message(
+            "Failed to copy syscall_compat".into(),
+        ));
     }
 
     println!("Copying boot.toml to /boot/...");

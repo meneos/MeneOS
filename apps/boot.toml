@@ -18,6 +18,13 @@ health_probe = "fs_ping"
 
 [service.helloworld]
 binary = "/boot/helloworld"
+depends_on = "fs,syscall_compat"
+restart_policy = "one-shot"
+health_probe = "none"
+launch = "fs_exec"
+
+[service.syscall_compat]
+binary = "/boot/syscall_compat"
 depends_on = "fs"
 restart_policy = "one-shot"
 health_probe = "none"

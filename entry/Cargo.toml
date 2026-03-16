@@ -15,7 +15,7 @@ axtask = { workspace = true }
 axruntime = { workspace = true, features = ["alloc", "fs", "paging", "multitask", "irq", "axdriver"] }
 axfs = { workspace = true }
 axlog = { workspace = true }
-axfeat = { workspace = true, features = ["alloc", "fs", "paging", "multitask", "irq", "sched-rr", "axdriver"] }
+axfeat = { workspace = true, features = ["alloc", "fs", "paging", "multitask", "irq", "sched-rr", "axdriver", "fp-simd"] }
 
 
 mene-init = { path = "../kernel/mene-init" }
