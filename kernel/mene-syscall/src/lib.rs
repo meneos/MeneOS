@@ -211,7 +211,7 @@ pub fn handle_syscall(
                         buf_slice,
                         &mut sender_pid,
                         &mut recv_cap,
-                        Duration::from_millis(timeout_ms as u64),
+                        timeout_ms,
                     ) {
                         Ok(copied) => {
                             unsafe {
